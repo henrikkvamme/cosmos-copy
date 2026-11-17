@@ -32,10 +32,24 @@ function toast(tabId, text, isError = false) {
   chrome.tabs.sendMessage(tabId, { type: "cosmos-copy:toast", text, isError }).catch(() => {});
 }
 
-async function copyToClipboard(media, name) {
-  const result = await chrome.runtime.sendNativeMessage(HOST, { ...media, name });
-  if (!result?.ok) throw new Error(result?.error ?? "The native helper gave no answer");
-  return result;
+// Copies build up a batch on the clipboard. The batch ends when Brave loses focus (you went
+// to paste), or when something else changes the clipboard (the helper checks the change count).
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) chrome.storage.session.remove("batch");
+});
+
+// One copy at a time, so two fast presses both land in the batch.
+let clipboardQueue = Promise.resolve();
+function copyToClipboard(media, name) {
+  const run = clipboardQueue.then(async () => {
+    const { batch } = await chrome.storage.session.get("batch");
+    const result = await chrome.runtime.sendNativeMessage(HOST, { ...media, name, appendTo: batch?.changeCount });
+    if (!result?.ok) throw new Error(result?.error ?? "The native helper gave no answer");
+    await chrome.storage.session.set({ batch: { changeCount: result.changeCount } });
+    return result;
+  });
+  clipboardQueue = run.catch(() => {});
+  return run;
 }
 
 // Likes the element and saves it to the collection. Returns what worked.
@@ -77,7 +91,8 @@ async function copyReference(tab) {
 
     const size = (copied.bytes / 1024 / 1024).toFixed(1);
     const extra = kept.done.length ? `, ${kept.done.join(" and ")}` : "";
-    toast(tab.id, `Copied ${media.kind} (${size} MB)${extra}.`);
+    const batch = copied.count > 1 ? ` - ${copied.count} on the clipboard` : "";
+    toast(tab.id, `Copied ${media.kind} (${size} MB)${batch}${extra}.`);
     if (kept.failed.length) {
       console.warn("Cosmos Copy:", kept.failed);
       setTimeout(() => toast(tab.id, `Copied, but Cosmos failed (${kept.failed.join("; ")})`, true), 2600);

@@ -24,6 +24,7 @@ Agents search that collection through a remote MCP server.
 
 - Hover an element on Cosmos, or open one, and press the shortcut. A toast confirms the copy.
 - Paste in an agent: an image pastes as an image, and a video pastes as an mp4 file.
+- Press the shortcut on more elements to copy several at once. Each copy adds to the clipboard, and the toast shows how many it holds. A new batch starts when you leave the browser (for example to paste), or when you copy something else.
 - On any other site, the shortcut copies the image or video under the cursor (no like or save).
 - The popup sets the collection name and the like setting. The collection is created as public if it does not exist.
 

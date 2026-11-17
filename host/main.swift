@@ -81,17 +81,38 @@ func pngData(from data: Data) -> Data? {
 }
 
 /// Puts a file on the clipboard like a copy in Finder, plus PNG data for images.
-func putOnClipboard(file: URL, png: Data?) throws {
+/// With `appendTo`, the files already on the clipboard stay, but only when the clipboard has not
+/// changed since that change count (nothing else was copied in between).
+/// Returns the new change count and the number of files on the clipboard.
+func putOnClipboard(file: URL, png: Data?, appendTo changeCount: Int?) throws -> (Int, Int) {
+    let pasteboard = NSPasteboard.general
+    var items: [NSPasteboardItem] = []
+    if let changeCount, changeCount == pasteboard.changeCount {
+        // Items belong to the pasteboard, so copy them into new items before the clear. Copy only
+        // the types this helper writes: macOS adds legacy types that list all files, and copying
+        // those into each item breaks the batch.
+        for old in pasteboard.pasteboardItems ?? [] {
+            guard let oldFile = old.string(forType: .fileURL), oldFile != file.absoluteString else { continue }
+            let copy = NSPasteboardItem()
+            copy.setString(oldFile, forType: .fileURL)
+            if let png = old.data(forType: .png) { copy.setData(png, forType: .png) }
+            items.append(copy)
+        }
+    }
     let item = NSPasteboardItem()
     item.setString(file.absoluteString, forType: .fileURL)
     if let png { item.setData(png, forType: .png) }
-    let pasteboard = NSPasteboard.general
+    items.append(item)
     pasteboard.clearContents()
-    guard pasteboard.writeObjects([item]) else { throw HostError(message: "Could not write to the clipboard") }
+    guard pasteboard.writeObjects(items) else { throw HostError(message: "Could not write to the clipboard") }
+    // macOS hands over all items after the first on the run loop. Without this, a helper that
+    // exits at once leaves only the first file on the clipboard.
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    return (pasteboard.changeCount, items.count)
 }
 
 /// Downloads media, saves it and puts it on the clipboard. Returns the file and its size.
-func fetchAndCopy(url: URL, kind: String, name: String) throws -> (URL, Int) {
+func fetchAndCopy(url: URL, kind: String, name: String, appendTo: Int?) throws -> (URL, Int, Int, Int) {
     try FileManager.default.createDirectory(at: mediaDir, withIntermediateDirectories: true)
     var (data, mime) = try download(url)
     var ext = fileExtension(mime: mime, url: url)
@@ -111,8 +132,8 @@ func fetchAndCopy(url: URL, kind: String, name: String) throws -> (URL, Int) {
     do { try data.write(to: file) } catch {
         throw HostError(message: "Could not save the file: \(error.localizedDescription)")
     }
-    try putOnClipboard(file: file, png: png)
-    return (file, data.count)
+    let (changeCount, count) = try putOnClipboard(file: file, png: png, appendTo: appendTo)
+    return (file, data.count, changeCount, count)
 }
 
 // MARK: - Main
@@ -125,8 +146,9 @@ func handle(_ msg: [String: Any]) throws -> [String: Any] {
     let kind = msg["kind"] as? String ?? "image"
     let name = msg["name"] as? String
         ?? "web-" + SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)
-    let (file, bytes) = try fetchAndCopy(url: url, kind: kind, name: name)
-    return ["ok": true, "path": file.path, "bytes": bytes, "kind": kind]
+    let appendTo = (msg["appendTo"] as? NSNumber)?.intValue
+    let (file, bytes, changeCount, count) = try fetchAndCopy(url: url, kind: kind, name: name, appendTo: appendTo)
+    return ["ok": true, "path": file.path, "bytes": bytes, "kind": kind, "changeCount": changeCount, "count": count]
 }
 
 guard let msg = readMessage() else { exit(0) }
