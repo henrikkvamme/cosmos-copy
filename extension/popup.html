@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cosmos Copy</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      <span class="name">Cosmos Copy</span>
+      <button class="shortcut" id="shortcut" title="Change the shortcut"></button>
+    </header>
+
+    <section>
+      <label class="row">
+        <span>Save to</span>
+        <input id="collection" type="text" spellcheck="false" />
+      </label>
+      <label class="row">
+        <span>Like on Cosmos</span>
+        <input id="like" type="checkbox" role="switch" />
+      </label>
+      <a class="open" id="open" target="_blank" rel="noreferrer">Open collection</a>
+    </section>
+
+    <section class="agents">
+      <h2>Connect agents</h2>
+      <p class="hint">Paste into any agent. It adds the MCP server, so the agent can search this collection.</p>
+      <button class="pill dark" id="copy-prompt" disabled>Copy setup prompt</button>
+      <div class="cmds">
+        <button class="cmd" id="copy-claude" disabled><span>Claude Code</span><code></code></button>
+        <button class="cmd" id="copy-codex" disabled><span>Codex</span><code></code></button>
+      </div>
+      <p class="status" id="status"></p>
+    </section>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
