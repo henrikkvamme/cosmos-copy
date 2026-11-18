@@ -11,7 +11,7 @@ its variants beside them on a canvas page.
 | Part | Path | What it does |
 | --- | --- | --- |
 | Extension | `extension/` | Extension for Brave, Chrome or Ardia. On cosmos.so, the `C` key copies the element under the cursor, or the open element page. On other sites, the shortcut (default Option+Shift+C) does. It likes the element and saves it to the collection. The popup shows what is on the clipboard; settings sit behind the gear. |
-| Native helper | `host/` | Swift program for native messaging. It downloads the media to `~/Downloads/Cosmos References` and puts the file on the macOS clipboard. Images also go on the clipboard as PNG data. |
+| Native helper | `host/` | Swift program for native messaging. It downloads the media to `~/Downloads/Cosmos References` and puts the file on the macOS clipboard. Images also go on the clipboard as PNG data. An image from Cosmos gets a thin strip with its id at the bottom. |
 | MCP server | `server/` | MCP server over streamable HTTP, hosted at `https://cosmos-mcp.henrikkvamme.no`. The vault at `/mcp/<username>?key=<device key>` reads all your collections, searches all of Cosmos, saves references and runs the design flow (picker, contact sheets, canvas). A public collection is also open without login at `/mcp/<username>/<collection-slug>`. |
 
 ## Install the extension (macOS)
@@ -27,6 +27,7 @@ its variants beside them on a canvas page.
 
 - Hover an element on Cosmos, or open one, and press `C`. A toast confirms the copy. In a text field, `C` types a letter as usual.
 - Paste in an agent: an image pastes as an image, and a video pastes as an mp4 file.
+- A copied Cosmos image has a thin dark strip at the bottom with a label such as `cosmos 1850854004-65`: the id and two check digits. An agent with the vault reads the label and knows which reference it is. The reference in Cosmos does not change. Videos and images from other sites get no strip.
 - Press `C` on more elements to copy several at once. Each copy adds to the clipboard, and the toast shows how many it holds. A new batch starts when you leave the browser (for example to paste), or when you copy something else.
 - On any other site, the shortcut (Option+Shift+C) copies the image or video under the cursor (no like or save). On cosmos.so the shortcut works too.
 - Click the extension icon to see what is on the clipboard. Click a thumbnail to open it on Cosmos, or the x to take it off the clipboard.
@@ -43,7 +44,7 @@ visit cosmos.so now and then to keep it fresh.
 
 Vault tools: `list_collections`, `list_references`, `search_references`, `get_reference`,
 `search_cosmos`, `save_reference`, and the design flow tools `contact_sheet`, `start_picks`,
-`wait_for_picks`, `show_variants` and `clear_pick_history`.
+`wait_for_picks`, `show_variants`, `note_references` and `clear_pick_history`.
 
 "Disconnect agents on this browser" revokes the key at once. The extension stays
 disconnected until you click "Connect agents again", which makes a new key and a new setup URL.
@@ -68,6 +69,11 @@ instructions tell it the flow:
 6. It calls `show_variants`, uploads a screenshot of each variant and gives you a canvas link. The
    canvas shows each variant beside the references it takes from. Drag to pan, pinch or Ctrl+scroll
    to zoom, and press `0` or click Fit to see all.
+
+You can also skip the picker: paste copied references into the chat. The agent reads the label on
+each strip and calls `note_references`. The pasted references are then your picks for the task, and
+the agent continues at step 4. When you say later that you do not want a reference, or did not like
+what came of it, the agent marks it as passed.
 
 Picker and canvas links hold a random id that cannot be guessed. Anyone with the link can open the
 page, so keep it private. A picker link expires after 7 days, a canvas link after 30 days.

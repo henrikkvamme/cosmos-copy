@@ -2,8 +2,10 @@
 // It downloads a media URL, saves it under ~/Downloads/Cosmos References and
 // puts the file on the macOS clipboard, like a copy in Finder. Images also go
 // on the clipboard as PNG data, so apps that only take image data (such as
-// Claude Code with ctrl+v) can paste them. The reference library itself lives
-// in a Cosmos collection, so this helper keeps no state.
+// Claude Code with ctrl+v) can paste them. An image from Cosmos gets a thin
+// strip with its id at the bottom, so an agent that gets the paste knows which
+// reference it is. The reference library itself lives in a Cosmos collection,
+// so this helper keeps no state.
 
 import AppKit
 import CryptoKit
@@ -80,6 +82,51 @@ func pngData(from data: Data) -> Data? {
     return rep.representation(using: .png, properties: [:])
 }
 
+// MARK: - Id strip
+
+/// The label of a Cosmos reference: its id and two check digits (mod 97, as in an IBAN), so the
+/// server can reject an id that an agent read wrongly. The id comes from the file name
+/// `cosmos-<id>`, which the extension gives to every Cosmos element.
+func idLabel(forName name: String) -> String? {
+    guard name.hasPrefix("cosmos-") else { return nil }
+    let digits = name.dropFirst("cosmos-".count)
+    guard !digits.isEmpty, digits.count <= 19, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
+          let id = UInt64(digits) else { return nil }
+    let check = 98 - (id % 97) * 100 % 97
+    return "cosmos \(digits)-" + String(format: "%02d", check)
+}
+
+/// Adds a dark strip with the label under the image. The image itself is not covered. An image
+/// that is narrower than the label gets a wider canvas, so the label is never cut.
+func withStrip(png: Data, label: String) -> Data? {
+    guard let source = NSBitmapImageRep(data: png), let image = source.cgImage else { return nil }
+    let width = image.width, height = image.height
+    // Apps shrink a pasted image by its long edge, so the text size follows the long edge.
+    let fontSize = max(13, (CGFloat(max(width, height)) * 0.01).rounded())
+    let strip = Int((fontSize * 1.6).rounded())
+    let text = NSAttributedString(string: label, attributes: [
+        .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .medium),
+        .foregroundColor: NSColor(white: 0.82, alpha: 1),
+    ])
+    let margin = fontSize * 0.8
+    let canvasWidth = max(width, Int((text.size().width + margin * 2).rounded(.up)))
+    guard let rep = NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: canvasWidth, pixelsHigh: height + strip, bitsPerSample: 8,
+        samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+        bytesPerRow: 0, bitsPerPixel: 0),
+        let context = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+    rep.size = NSSize(width: canvasWidth, height: height + strip)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    context.cgContext.draw(image, in: CGRect(x: 0, y: strip, width: width, height: height))
+    context.cgContext.setFillColor(CGColor(red: 0.05, green: 0.05, blue: 0.055, alpha: 1))
+    context.cgContext.fill(CGRect(x: 0, y: 0, width: canvasWidth, height: strip))
+    text.draw(at: NSPoint(x: margin, y: (CGFloat(strip) - text.size().height) / 2))
+    context.flushGraphics()
+    NSGraphicsContext.restoreGraphicsState()
+    return rep.representation(using: .png, properties: [:])
+}
+
 /// Puts a file on the clipboard like a copy in Finder, plus PNG data for images.
 /// With `appendTo`, the files already on the clipboard stay, but only when the clipboard has not
 /// changed since that change count (nothing else was copied in between).
@@ -127,6 +174,11 @@ func fetchAndCopy(url: URL, kind: String, name: String, appendTo: Int?) throws -
         } else {
             throw HostError(message: "The file is not an image")
         }
+        // A Cosmos reference gets its id strip. A GIF file stays as it is; its PNG copy gets the strip.
+        if let label = idLabel(forName: name), let current = png, let labelled = withStrip(png: current, label: label) {
+            png = labelled
+            if ext == "png" { data = labelled }
+        }
     }
     let file = mediaDir.appendingPathComponent(safeName(name)).appendingPathExtension(ext)
     do { try data.write(to: file) } catch {
@@ -154,11 +206,14 @@ func setClipboard(paths: [String], expect changeCount: Int) throws -> Int {
         }
         let item = NSPasteboardItem()
         item.setString(file.absoluteString, forType: .fileURL)
-        // The same image data as the first copy: PNG as is, a GIF converted to PNG.
-        if ["png", "gif"].contains(file.pathExtension.lowercased()), let data = try? Data(contentsOf: file) {
-            if let png = file.pathExtension.lowercased() == "png" ? data : pngData(from: data) {
-                item.setData(png, forType: .png)
-            }
+        // The same image data as the first copy: PNG as is (it has its strip), a GIF converted
+        // to PNG with its strip.
+        let ext = file.pathExtension.lowercased()
+        if ext == "png", let data = try? Data(contentsOf: file) {
+            item.setData(data, forType: .png)
+        } else if ext == "gif", let data = try? Data(contentsOf: file), let png = pngData(from: data) {
+            let label = idLabel(forName: file.deletingPathExtension().lastPathComponent)
+            item.setData(label.flatMap { withStrip(png: png, label: $0) } ?? png, forType: .png)
         }
         return item
     }
