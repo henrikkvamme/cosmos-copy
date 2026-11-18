@@ -1,16 +1,16 @@
 # Cosmos Copy
 
 Copy a Cosmos image or video with one shortcut, and paste it to an agent.
-Each copy also likes the element and saves it to a public Cosmos collection.
-Agents search that collection through a remote MCP server.
+Each copy also likes the element and saves it to a Cosmos collection.
+Agents search all your Cosmos collections, and all of Cosmos, through a remote MCP server.
 
 ## Parts
 
 | Part | Path | What it does |
 | --- | --- | --- |
-| Extension | `extension/` | Brave or Chrome extension. The shortcut (default Option+Shift+C) copies the element under the cursor, or the open element page. It likes the element and saves it to the collection. The popup shows the agent setup. |
+| Extension | `extension/` | Brave or Chrome extension. The shortcut (default Option+Shift+C) copies the element under the cursor, or the open element page. It likes the element and saves it to the collection. The popup shows what is on the clipboard; settings sit behind the gear. |
 | Native helper | `host/` | Swift program for native messaging. It downloads the media to `~/Downloads/Cosmos References` and puts the file on the macOS clipboard. Images also go on the clipboard as PNG data. |
-| MCP server | `server/` | Stateless MCP server over streamable HTTP. It reads a public Cosmos collection without login. Hosted at `https://cosmos-mcp.henrikkvamme.no/mcp/<username>/<collection-slug>`. |
+| MCP server | `server/` | MCP server over streamable HTTP, hosted at `https://cosmos-mcp.henrikkvamme.no`. The vault at `/mcp/<username>?key=<device key>` reads all your collections, searches all of Cosmos and saves references. A public collection is also open without login at `/mcp/<username>/<collection-slug>`. |
 
 ## Install the extension (macOS)
 
@@ -26,17 +26,26 @@ Agents search that collection through a remote MCP server.
 - Paste in an agent: an image pastes as an image, and a video pastes as an mp4 file.
 - Press the shortcut on more elements to copy several at once. Each copy adds to the clipboard, and the toast shows how many it holds. A new batch starts when you leave the browser (for example to paste), or when you copy something else.
 - On any other site, the shortcut copies the image or video under the cursor (no like or save).
-- The popup sets the collection name and the like setting. The collection is created as public if it does not exist.
+- Click the extension icon to see what is on the clipboard. Click a thumbnail to open it on Cosmos, or the x to take it off the clipboard.
+- The gear opens settings: the collection that copies go to ("New collection…" creates one), the like setting, the shortcut and the agent setup.
 
 ## Connect agents
 
-Open the extension popup and click "Copy setup prompt". Paste it into any agent.
-Or run one command:
+Open the extension, click the gear and click "Copy setup prompt". Paste it into any agent.
 
-```sh
-claude mcp add --transport http --scope user cosmos https://cosmos-mcp.henrikkvamme.no/mcp/henrikkvamme/agent-references
-codex mcp add cosmos --url https://cosmos-mcp.henrikkvamme.no/mcp/henrikkvamme/agent-references
-```
+The extension links your Cosmos login to the server for each browser. It sends the
+`csms_accessToken` cookie on install, on startup, every 6 hours and when Cosmos renews it.
+The setup URL holds this browser's device key, so keep it private. The token lasts 7 days:
+visit cosmos.so now and then to keep it fresh.
+
+Vault tools: `list_collections`, `list_references`, `search_references`, `get_reference`,
+`search_cosmos` and `save_reference`.
+
+"Disconnect agents on this browser" revokes the key at once. The extension stays
+disconnected until you click "Connect agents again", which makes a new key and a new setup URL.
+
+The server only links the Cosmos users in `LINK_ALLOWED_USERS`. It keeps the links in
+`DATA_DIR/links.json` (mode 600), on the `cosmos-mcp-data` volume in Dokploy.
 
 ## Notes
 
