@@ -556,6 +556,8 @@ try {
     const put = await page(uploadPath, { method: "PUT", body: png });
     check("upload: a PNG is stored", put.status === 200 && (await put.text()).includes("1440 x 900"), put.status);
     check("upload: garbage gives 400", (await page(uploadPath, { method: "PUT", body: Buffer.from("not an image") })).status === 400);
+    const huge = await sharp({ create: { width: 8000, height: 8000, channels: 3, background: "#fff" } }).png().toBuffer();
+    check("upload: an image over 50 megapixels gives 413 before decoding", (await page(uploadPath, { method: "PUT", body: huge })).status === 413, huge.length);
     check("upload: a guessed upload id gives 404", (await page(`/u/${newKey().slice(0, 43)}/1`, { method: "PUT", body: png })).status === 404);
     check("upload: the view id cannot upload", (await page(`/u/${boardId}/1`, { method: "PUT", body: png })).status === 404);
     check("upload: variant 3 of 2 gives 404", (await page(uploadPath.replace(/\/1$/, "/3"), { method: "PUT", body: png })).status === 404);

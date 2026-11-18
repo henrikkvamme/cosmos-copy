@@ -61,7 +61,7 @@ Vault, design flow (the server instructions give the agent the order):
   blue, passed ones dimmed, 3 tasks per call). `count` is at most 60 (two sheets).
 - `start_picks { task, candidates }`: 1 to 60 element ids. Makes a pick session and returns the
   picker link.
-- `wait_for_picks { session }`: waits up to 50 seconds for Done. Before Done it answers "Not done
+- `wait_for_picks { session }`: waits up to 50 seconds for Done, and answers within 58 seconds. Before Done it answers "Not done
   yet" and the agent calls it again. After Done it returns the picks with their images and the next
   steps. The agent never asks Henrik to say that he is done.
 - `show_variants { task, variants: [{ name, takes: [{ id, what? }] }] }`: 1 to 6 variants. Returns
@@ -119,7 +119,8 @@ The server sends no CORS headers.
   and `Cache-Control: no-store`. Page writes need `Content-Type: application/json`, so a form on
   another site cannot post them.
 - Uploads are decoded and stored again as WebP, at most 2880 x 12000 px. A file that is not an
-  image gives 400.
+  image gives 400. An image over 50 megapixels gives 413 before it is decoded. Uploads decode one
+  at a time, and with 4 waiting the next one gets 503.
 
 ## Configuration
 

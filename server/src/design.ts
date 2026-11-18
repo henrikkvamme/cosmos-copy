@@ -38,6 +38,37 @@ export const WAIT_MS = Number(process.env.PICK_WAIT_MS ?? 50_000);
 const MAX_SHEET_COUNT = 60;
 const HISTORY_TASKS_PER_CALL = 3;
 const RESOLVE_CONCURRENCY = 8;
+/** A wait_for_picks call answers within WAIT_MS plus this time, image work included. Agents stop a tool call at 60 s. */
+const IMAGE_BUDGET_MS = 8_000;
+const MAX_PICK_IMAGES = 12;
+
+type Visual = Awaited<ReturnType<typeof loadVisual>>;
+const pickVisuals = new Map<string, Promise<Visual | undefined>>();
+
+/** The image of one pick at the size the result uses. Calls for the same image share one download. */
+function pickVisual(tile: Tile, count: number): Promise<Visual | undefined> {
+  const edge = count <= 6 ? 1024 : 768;
+  const key = `${tile.thumb}#${edge}`;
+  let visual = pickVisuals.get(key);
+  if (!visual) {
+    visual = loadVisual({ thumbnailUrl: tile.thumb, width: tile.w }, edge)
+      .catch(() => undefined)
+      .finally(() => pickVisuals.delete(key));
+    pickVisuals.set(key, visual);
+  }
+  return visual;
+}
+
+function picksOf(session: Session): Tile[] {
+  const byId = new Map(session.tiles.map((tile) => [tile.id, tile]));
+  return session.picked.map((pickId) => byId.get(pickId)).filter((tile): tile is Tile => tile !== undefined);
+}
+
+/** Starts the image downloads when Henrik clicks Done, so the waiting tool call finds them in the cache. */
+export function prefetchPickImages(session: Session): void {
+  const picks = picksOf(session);
+  void mapLimit(picks.slice(0, MAX_PICK_IMAGES), RESOLVE_CONCURRENCY, (tile) => pickVisual(tile, picks.length));
+}
 
 export const PLAN_TEXT =
   "Propose at most 3 variants, one line each: a close match of one pick, or a mix such as layout of pick 2, colours of pick 5. " +
@@ -399,9 +430,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
 
   // ---- wait_for_picks ----
 
-  async function picksResult(id: string, session: Session): Promise<CallToolResult> {
-    const byId = new Map(session.tiles.map((tile) => [tile.id, tile]));
-    const picks = session.picked.map((pickId) => byId.get(pickId)).filter((tile): tile is Tile => tile !== undefined);
+  async function picksResult(id: string, session: Session, deadline: number): Promise<CallToolResult> {
+    const picks = picksOf(session);
     const passed = session.tiles.filter((tile) => !session.picked.includes(tile.id) && !session.hidden.includes(tile.id)).length;
     if (picks.length === 0) {
       return {
@@ -414,11 +444,10 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         structuredContent: { session: id, task: session.task, status: "done", picks: [], passed },
       };
     }
-    const edge = picks.length <= 6 ? 1024 : 768;
-    const shown = picks.slice(0, 12);
-    const visuals = await mapLimit(shown, RESOLVE_CONCURRENCY, (tile) =>
-      loadVisual({ thumbnailUrl: tile.thumb, width: tile.w }, edge).catch(() => undefined),
-    );
+    const shown = picks.slice(0, MAX_PICK_IMAGES);
+    // An image that is not ready by the deadline is left out; the agent can read it with get_reference.
+    const late = new Promise<undefined>((resolve) => setTimeout(resolve, Math.max(1_000, deadline - Date.now())));
+    const visuals = await mapLimit(shown, RESOLVE_CONCURRENCY, (tile) => Promise.race([pickVisual(tile, picks.length), late]));
     const content: CallToolResult["content"] = [
       {
         type: "text",
@@ -478,10 +507,11 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       if (!id || !found || !mine(found.username)) {
         return errorResult("No pick session has this id. Sessions expire 7 days after the last change. Call start_picks for a new one.");
       }
+      const deadline = Date.now() + WAIT_MS + IMAGE_BUDGET_MS;
       if (found.status !== "done") await ctx.picks.waitDone(id, WAIT_MS, extra.signal);
       const session = ctx.picks.session(id);
       if (!session) return errorResult("The pick session expired. Call start_picks for a new one.");
-      if (session.status === "done") return picksResult(id, session);
+      if (session.status === "done") return picksResult(id, session, deadline);
       const seen = session.seenAt ? "Henrik has the picker open" : "Henrik has not opened the picker yet";
       return {
         content: [

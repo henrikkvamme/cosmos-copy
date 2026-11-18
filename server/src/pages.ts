@@ -13,9 +13,9 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { fileURLToPath } from "node:url";
-import sharp, { type OutputInfo } from "sharp";
+import sharp, { type Metadata, type OutputInfo } from "sharp";
 import { getSimilarElements } from "./cosmos.js";
-import { historyEntry } from "./design.js";
+import { historyEntry, prefetchPickImages } from "./design.js";
 import { hashId, MAX_MORE_ROUNDS, MORE_PER_ROUND, type Board, type PickStore, type Session, type Tile } from "./picks.js";
 import { RateLimiter } from "./ratelimit.js";
 
@@ -23,6 +23,10 @@ const MAX_STATE_BYTES = 64 * 1024;
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 const MAX_IMAGE_WIDTH = 2880;
 const MAX_IMAGE_HEIGHT = 12000;
+/** Decoded size limit of an upload. A decode holds about 4 bytes per pixel. */
+const MAX_INPUT_PIXELS = 50_000_000;
+/** Uploads decode one at a time. More than this many waiting gives 503. */
+const MAX_UPLOADS_WAITING = 4;
 
 const PAGES_DIR = fileURLToPath(new URL("../pages/", import.meta.url));
 const ASSETS: Record<string, string> = {
@@ -99,6 +103,17 @@ function idList(value: unknown, allowed: Set<string>): string[] | undefined {
 export class Pages {
   private readonly files = loadFiles();
   /** Requests with an unknown id, per IP. */
+  private uploadsWaiting = 0;
+  private uploadQueue: Promise<unknown> = Promise.resolve();
+
+  /** Runs image decodes one after another, so several uploads cannot fill the memory together. */
+  private oneAtATime<T>(work: () => Promise<T>): Promise<T> {
+    this.uploadsWaiting++;
+    const run = this.uploadQueue.then(work, work).finally(() => this.uploadsWaiting--);
+    this.uploadQueue = run.catch(() => undefined);
+    return run;
+  }
+
   private readonly guesses = new RateLimiter(Number(process.env.PAGE_GUESS_LIMIT ?? 30), 15 * 60_000);
   /** "More like these" in progress per session, so a double click does not add the same tiles twice. */
   private readonly moreInflight = new Map<string, Promise<Tile[]>>();
@@ -224,6 +239,7 @@ export class Pages {
         session.status = "done";
         session.doneAt = new Date().toISOString();
         this.picks.touch(session);
+        prefetchPickImages(session);
         await this.picks.save();
         try {
           await this.picks.addHistory(session.username, historyEntry(session));
@@ -325,16 +341,28 @@ export class Pages {
     if (type && !/^(image\/(png|jpeg|webp)|application\/octet-stream|application\/x-www-form-urlencoded)\b/.test(type)) {
       return this.send(res, 415, { error: "Send the image as the raw body (curl -T file.png <url>): PNG, JPEG or WebP." });
     }
+    if (this.uploadsWaiting >= MAX_UPLOADS_WAITING) return this.send(res, 503, { error: "Too many uploads at once. Try again in a few seconds." });
     const body = await readBody(req, MAX_UPLOAD_BYTES);
+    let metadata: Metadata;
+    try {
+      // metadata() reads the header only, so this check comes before any decode.
+      metadata = await sharp(body).metadata();
+      if (!["png", "jpeg", "webp"].includes(metadata.format ?? "")) throw new Error("format");
+    } catch {
+      return this.send(res, 400, { error: "The body is not a PNG, JPEG or WebP image." });
+    }
+    if ((metadata.width ?? 0) * (metadata.height ?? 0) > MAX_INPUT_PIXELS) {
+      return this.send(res, 413, { error: `The image is larger than ${MAX_INPUT_PIXELS / 1_000_000} megapixels. Take a smaller screenshot.` });
+    }
     let output: { data: Buffer; info: OutputInfo };
     try {
-      const metadata = await sharp(body, { limitInputPixels: 80_000_000 }).metadata();
-      if (!["png", "jpeg", "webp"].includes(metadata.format ?? "")) throw new Error("format");
-      output = await sharp(body, { limitInputPixels: 80_000_000, animated: false })
-        .rotate()
-        .resize({ width: MAX_IMAGE_WIDTH, height: MAX_IMAGE_HEIGHT, fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 90 })
-        .toBuffer({ resolveWithObject: true });
+      output = await this.oneAtATime(() =>
+        sharp(body, { limitInputPixels: MAX_INPUT_PIXELS, animated: false })
+          .rotate()
+          .resize({ width: MAX_IMAGE_WIDTH, height: MAX_IMAGE_HEIGHT, fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 90 })
+          .toBuffer({ resolveWithObject: true }),
+      );
     } catch {
       return this.send(res, 400, { error: "The body is not a PNG, JPEG or WebP image." });
     }

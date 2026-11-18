@@ -10,7 +10,7 @@ The concept is the source of truth for scope. This plan settles its open points 
 | How "More like these" finds references | The server asks Cosmos `similarElements` for each pick and adds new tiles to the grid at once. The agent takes no part. | Cosmos has its own visual similarity for one element (see Facts). It answers in about a second, so the page works without an agent turn, and the server needs no model or key. The concept's first idea (the agent writes search terms) needs a round trip through a waiting agent. |
 | How contact sheets are made | On the server with `sharp`: one JPEG per 30 references (6 by 5 cells), each cell numbered. The numbers are drawn as vector strokes, not with a font. | One image of 30 thumbnails costs about as many tokens as one full-size reference. A tool result with 30 small images costs more and has no numbers. The Docker image has no fonts, so text in an SVG would not render. |
 | Limits of the pick history | Per user: the newest 100 tasks, none older than 12 months. At most 300 passed references per task. Henrik clears it by asking any agent ("clear my pick history"), which calls `clear_pick_history`, for all tasks or one. Unlinking a device does not clear it. | 100 tasks is far more than Test A needed (2 earlier tasks). The history holds ids and CDN thumbnail URLs, not credentials, so it does not follow the device link. |
-| The wait for Done | `wait_for_picks` waits up to 50 seconds. Then it answers "not done yet", with the number of picks so far and whether the page was opened, and the agent calls it again. When Henrik clicks Done, every waiting call returns at once. A later call returns the same picks. | Codex stops an MCP tool call after 60 seconds by default, and the HTTP server closes a quiet socket after 65 seconds. 50 seconds stays under both. |
+| The wait for Done | `wait_for_picks` waits up to 50 seconds. Then it answers "not done yet", with the number of picks so far and whether the page was opened, and the agent calls it again. When Henrik clicks Done, every waiting call returns at once. A later call returns the same picks. Done starts the downloads of the pick images, and the call gives the images at most 8 more seconds: a late image is left out with a note to call `get_reference`. So a call answers within 58 seconds. | Codex stops an MCP tool call after 60 seconds by default, and the HTTP server closes a quiet socket after 65 seconds. 58 seconds stays under both. |
 
 ## Other decisions
 
@@ -76,6 +76,7 @@ The server instructions name the flow for a design task. The tool results carry 
 - Writes from the pages need `content-type: application/json`. The server sends no CORS headers, so another site cannot write.
 - The request log replaces each id with `:id` (`/p/:id/state`). Ids, keys and tokens never go to logs.
 - The uploaded image is decoded and encoded again as WebP (quality 90, at most 2880 px wide and 12000 px tall), so the server never serves the uploaded bytes.
+- An upload over 50 megapixels gives 413, from the image header, before any decode. Uploads decode one at a time; with 4 waiting, the next one gets 503. Only the first frame of an animated image is read.
 
 ### Pages
 
