@@ -5,35 +5,57 @@
     <title>Cosmos Copy</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
-  <body>
+  <body data-view="tray">
     <header>
+      <button class="icon back" id="back" title="Back" aria-label="Back">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5" /></svg>
+      </button>
       <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-      <span class="name">Cosmos Copy</span>
-      <button class="shortcut" id="shortcut" title="Change the shortcut"></button>
+      <span class="name" id="title">Cosmos Copy</span>
+      <button class="icon gear" id="gear" title="Settings" aria-label="Settings">
+        <!-- Lucide "settings" icon (ISC license). -->
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
     </header>
 
-    <section>
+    <main class="tray" id="tray">
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="empty" hidden>
+        <p class="lead">Nothing copied</p>
+        <p>Hover an image or video on Cosmos and press <kbd id="empty-shortcut">⌥⇧C</kbd>. Press again to add more.</p>
+      </div>
+      <p class="foot" id="count"></p>
+    </main>
+
+    <main class="settings" id="settings">
       <label class="row">
         <span>Save to</span>
-        <input id="collection" type="text" spellcheck="false" />
+        <select id="collection" disabled><option>Loading…</option></select>
       </label>
+      <form class="row new" id="new-form" hidden>
+        <input id="new-name" type="text" placeholder="New collection name" spellcheck="false" />
+        <button class="small" type="submit">Create</button>
+      </form>
       <label class="row">
         <span>Like on Cosmos</span>
         <input id="like" type="checkbox" role="switch" />
       </label>
-      <a class="open" id="open" target="_blank" rel="noreferrer">Open collection</a>
-    </section>
+      <div class="row">
+        <span>Shortcut</span>
+        <button class="shortcut" id="shortcut" title="Change the shortcut"></button>
+      </div>
+      <a class="open" id="open" target="_blank" rel="noreferrer" hidden>Open collection on Cosmos</a>
 
-    <section class="agents">
-      <h2>Connect agents</h2>
-      <p class="hint">Paste into any agent. It adds the MCP server, so the agent can search this collection.</p>
-      <button class="pill dark" id="copy-prompt" disabled>Copy setup prompt</button>
-      <div class="cmds">
-        <button class="cmd" id="copy-claude" disabled><span>Claude Code</span><code></code></button>
-        <button class="cmd" id="copy-codex" disabled><span>Codex</span><code></code></button>
+      <div class="agents">
+        <h2>Connect agents</h2>
+        <p class="hint">Paste the prompt into any agent. It adds the MCP server, so the agent can search and see your references.</p>
+        <button class="pill dark" id="copy-prompt" disabled>Copy setup prompt</button>
       </div>
       <p class="status" id="status"></p>
-    </section>
+    </main>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

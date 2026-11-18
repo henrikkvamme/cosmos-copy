@@ -138,7 +138,50 @@ func fetchAndCopy(url: URL, kind: String, name: String, appendTo: Int?) throws -
 
 // MARK: - Main
 
+/// Replaces the clipboard with saved reference files, for example after one is removed in the
+/// popup. Only files in the media folder are allowed.
+func setClipboard(paths: [String], expect changeCount: Int) throws -> Int {
+    // Refuse when something else was copied since the extension last looked, so a removal
+    // never overwrites newer clipboard content.
+    guard NSPasteboard.general.changeCount == changeCount else {
+        throw HostError(message: "The clipboard changed. Open the popup again.")
+    }
+    let dir = mediaDir.standardizedFileURL.path + "/"
+    let items = try paths.map { path -> NSPasteboardItem in
+        let file = URL(fileURLWithPath: path).standardizedFileURL
+        guard file.path.hasPrefix(dir), FileManager.default.fileExists(atPath: file.path) else {
+            throw HostError(message: "Not a saved reference: \(file.lastPathComponent)")
+        }
+        let item = NSPasteboardItem()
+        item.setString(file.absoluteString, forType: .fileURL)
+        // The same image data as the first copy: PNG as is, a GIF converted to PNG.
+        if ["png", "gif"].contains(file.pathExtension.lowercased()), let data = try? Data(contentsOf: file) {
+            if let png = file.pathExtension.lowercased() == "png" ? data : pngData(from: data) {
+                item.setData(png, forType: .png)
+            }
+        }
+        return item
+    }
+    let pasteboard = NSPasteboard.general
+    pasteboard.clearContents()
+    if !items.isEmpty {
+        guard pasteboard.writeObjects(items) else { throw HostError(message: "Could not write to the clipboard") }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    }
+    return pasteboard.changeCount
+}
+
 func handle(_ msg: [String: Any]) throws -> [String: Any] {
+    switch msg["type"] as? String {
+    case "status":
+        return ["ok": true, "changeCount": NSPasteboard.general.changeCount]
+    case "set":
+        let paths = msg["paths"] as? [String] ?? []
+        guard let expect = (msg["expect"] as? NSNumber)?.intValue else { throw HostError(message: "Missing expect") }
+        return ["ok": true, "changeCount": try setClipboard(paths: paths, expect: expect), "count": paths.count]
+    default:
+        break
+    }
     guard let raw = msg["url"] as? String, let url = URL(string: raw),
           ["http", "https"].contains(url.scheme ?? "") else {
         throw HostError(message: "Bad URL")

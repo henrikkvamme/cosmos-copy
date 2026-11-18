@@ -9,6 +9,7 @@ const QUERIES = {
   clusterBySlug: "sha256:4efc84bf9ebb4956d698e4421cbd8947aa8b0951fec75251c8bf4786696dbcb2",
   createCluster: "sha256:7cc419bfdc9204f75bdf48af0571a7d9cdb56397cc60a27910d7fbc0d968b5a7",
   editConnections: "sha256:50f4d890cc8758987cb2d0b6d4adefda81e5c17d5b7208b93c74f937005777a3",
+  searchClusters: "sha256:5bf09e7334f5cbb379c0733feaa82b8ed5c1e118842ea675545aa9b4360d28f6",
 };
 
 async function graphql(documentId, variables = {}) {
@@ -74,11 +75,24 @@ export const cosmos = {
       fetchSubCluster: false,
       isLoggedIn: true,
     }).catch(() => null);
-    if (found?.cluster?.id) return { id: found.cluster.id, slug: found.cluster.slug ?? slug, username };
+    if (found?.cluster?.id) return { id: found.cluster.id, name, slug: found.cluster.slug ?? slug, username };
     const created = await graphql(QUERIES.createCluster, { name, userId, isPrivate: false, isLoggedIn: true });
     const cluster = created?.cluster?.create;
     if (!cluster?.id) throw new Error("Could not create the Cosmos collection");
-    return { id: cluster.id, slug: cluster.slug ?? slug, username };
+    return { id: cluster.id, name, slug: cluster.slug ?? slug, username };
+  },
+
+  // Henrik's collections, for the "Save to" menu. An empty search term lists them all.
+  async collections() {
+    const { id: userId, username } = await me();
+    const data = await graphql(QUERIES.searchClusters, { userId, searchTerm: "" });
+    return (data?.searchClusters?.items ?? []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      username: c.owner?.username ?? username,
+      isPrivate: Boolean(c.isPrivate),
+    }));
   },
 
   async save(elementId, clusterId) {
@@ -106,11 +120,13 @@ export const cosmos = {
         continue;
       }
       if (data?.contentUrl && (data["@type"] === "VideoObject" || data["@type"] === "ImageObject")) {
-        return { kind: data["@type"] === "VideoObject" ? "video" : "image", url: data.contentUrl };
+        const kind = data["@type"] === "VideoObject" ? "video" : "image";
+        const thumb = kind === "video" ? data.thumbnailUrl : data.contentUrl;
+        return { kind, url: data.contentUrl, thumb };
       }
     }
     const og = html.match(/<meta property="og:image" content="([^"]+)"/)?.[1];
-    if (og) return { kind: "image", url: og };
+    if (og) return { kind: "image", url: og, thumb: og };
     throw new Error("No image or video found on this Cosmos element");
   },
 };
