@@ -36,22 +36,26 @@
     return w > 0 && h > 0 ? w * h : 0;
   };
 
-  function findTarget() {
-    // Right after injection there is no mouse position yet, so use the :hover chain.
-    const underCursor = mouse
-      ? document.elementsFromPoint(mouse.x, mouse.y)
-      : [...document.querySelectorAll(":hover")].reverse();
-    const onCosmos = location.hostname.endsWith("cosmos.so");
+  // Right after injection there is no mouse position yet, so use the :hover chain.
+  const elementsUnderCursor = () =>
+    mouse ? document.elementsFromPoint(mouse.x, mouse.y) : [...document.querySelectorAll(":hover")].reverse();
 
-    // 1. A Cosmos card under the cursor.
+  // A Cosmos card under the cursor, else the element page that is open.
+  function cosmosTarget(underCursor) {
     for (const el of underCursor) {
       const link = el.closest?.('a[href*="/e/"]');
       const id = link && elementId(link.getAttribute("href"));
       if (id) return { elementId: id };
     }
-    // 2. The element page that is open.
-    const pageId = onCosmos && elementId(location.href);
-    if (pageId) return { elementId: pageId };
+    const pageId = location.hostname.endsWith("cosmos.so") && elementId(location.href);
+    return pageId ? { elementId: pageId } : null;
+  }
+
+  function findTarget() {
+    const underCursor = elementsUnderCursor();
+    // 1 and 2. A Cosmos card under the cursor, or the open element page.
+    const onCosmos = cosmosTarget(underCursor);
+    if (onCosmos) return onCosmos;
 
     // 3. Any other site: the image or video under the cursor, else the largest visible one.
     const hovered = underCursor.find((el) => el.tagName === "IMG" || el.tagName === "VIDEO");
@@ -94,6 +98,50 @@
     el.style.opacity = "1";
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.remove(), isError ? 5000 : 2500);
+  }
+
+  // On cosmos.so, plain "c" copies too. The Cosmos web app binds "c" on a hovered tile to its own
+  // "copy image". This listener runs first (window, capture phase, registered at document_start)
+  // and stops the event, so only one copy happens.
+  const isTextField = (el) =>
+    !!el &&
+    (el.isContentEditable ||
+      el.tagName === "TEXTAREA" ||
+      el.tagName === "SELECT" ||
+      (el.tagName === "INPUT" && !/^(button|checkbox|color|file|image|radio|range|reset|submit)$/i.test(el.type)));
+  if (location.hostname === "www.cosmos.so") {
+    let swallowed = false;
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key !== "c" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+        const focused = e.composedPath?.()[0] ?? e.target;
+        if (isTextField(focused) || isTextField(document.activeElement)) return;
+        const target = cosmosTarget(elementsUnderCursor());
+        if (!target) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        swallowed = true;
+        if (e.repeat) return;
+        chrome.runtime.sendMessage({ type: "cosmos-copy:copy", target }).catch(() => {
+          toast("Cosmos Copy was updated. Reload the page to copy.", true);
+        });
+      },
+      { capture: true },
+    );
+    // The same key's keypress and keyup must not reach a Cosmos handler either.
+    for (const type of ["keypress", "keyup"]) {
+      window.addEventListener(
+        type,
+        (e) => {
+          if (!swallowed || e.key !== "c") return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (type === "keyup") swallowed = false;
+        },
+        { capture: true },
+      );
+    }
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {

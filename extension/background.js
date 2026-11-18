@@ -116,11 +116,12 @@ async function keep(elementId, prefs) {
   return { done, failed };
 }
 
-async function copyReference(tab) {
+// `found` is the target the content script already found (plain "c" on cosmos.so).
+async function copyReference(tab, found) {
   tab = await activeTab(tab);
   if (!tab?.id) return;
   try {
-    const found = await askTab(tab.id, { type: "cosmos-copy:target" });
+    found ??= await askTab(tab.id, { type: "cosmos-copy:target" });
     if (found.error) throw new Error(found.error);
     toast(tab.id, "Copying…");
 
@@ -185,7 +186,12 @@ const popupHandlers = {
   },
 };
 
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  // Plain "c" on cosmos.so: the content script found a Cosmos element under the cursor.
+  if (msg?.type === "cosmos-copy:copy" && sender.tab?.id && /^\d+$/.test(String(msg.target?.elementId ?? ""))) {
+    copyReference(sender.tab, { elementId: String(msg.target.elementId) });
+    return false;
+  }
   const handler = popupHandlers[msg?.type];
   if (!handler) return false;
   handler(msg).then(
