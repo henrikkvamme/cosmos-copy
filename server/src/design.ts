@@ -4,6 +4,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { CosmosError, getElement, getElementWithToken, type Reference } from "./cosmos.js";
 import { loadVisual } from "./image.js";
@@ -38,6 +39,11 @@ export const WAIT_MS = Number(process.env.PICK_WAIT_MS ?? 50_000);
 const MAX_SHEET_COUNT = 60;
 const HISTORY_TASKS_PER_CALL = 3;
 const RESOLVE_CONCURRENCY = 8;
+
+/** A cursor holds a short hash of its query, not the query, so a long query still gives a short cursor. */
+function queryKey(term: string): string {
+  return createHash("sha256").update(term, "utf8").digest("base64url").slice(0, 16);
+}
 /** A wait_for_picks call answers within WAIT_MS plus this time, image work included. Agents stop a tool call at 60 s. */
 const IMAGE_BUDGET_MS = 8_000;
 const MAX_PICK_IMAGES = 12;
@@ -259,7 +265,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         query: z.string().max(300).optional().describe("vault: optional, ranks by meaning. cosmos: required, what to find in plain words."),
         collection: z.string().min(1).max(300).optional().describe("vault only: a collection name, slug or id."),
         count: z.number().int().min(1).max(MAX_SHEET_COUNT).optional().describe(`vault and cosmos: references to show. Default 30, maximum ${MAX_SHEET_COUNT} (2 sheets).`),
-        cursor: z.string().max(1000).optional().describe("The nextCursor of the previous contact_sheet result, with the same source and query."),
+        cursor: z.string().max(4000).optional().describe("The nextCursor of the previous contact_sheet result, with the same source and query."),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -267,7 +273,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const position = cursor ? decodeSheetCursor(cursor) : undefined;
       if (cursor && (!position || position.s !== source)) return errorResult("The cursor is not valid for this source. Use the nextCursor of the previous contact_sheet result.");
       const term = (query ?? "").trim();
-      if (position?.q !== undefined && position.q !== term) return errorResult("The cursor belongs to another query. Use the same query, or leave out the cursor.");
+      if (position?.q !== undefined && position.q !== queryKey(term)) return errorResult("The cursor belongs to another query. Use the same query, or leave out the cursor.");
       const first = position?.n ?? 1;
       const want = count ?? PER_SHEET;
 
@@ -322,7 +328,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           const searchCursor: SearchCursor | undefined = position ? { u: position.u ?? null, k: position.k ?? 0 } : undefined;
           const result = await pagedSearch({ query: term, limit: want, cursor: searchCursor });
           const inner = result.nextCursor ? decode<SearchCursor>(result.nextCursor, () => true) : undefined;
-          const nextCursor = inner ? encode({ s: "cosmos", n: first + result.references.length, u: inner.u, k: inner.k, q: term } satisfies SheetCursor) : undefined;
+          const nextCursor = inner ? encode({ s: "cosmos", n: first + result.references.length, u: inner.u, k: inner.k, q: queryKey(term) } satisfies SheetCursor) : undefined;
           return referenceSheets(`Cosmos search "${term}": ${first} to ${first + result.references.length - 1}, best match first.`, result.references, first, nextCursor, source);
         } catch (error) {
           return errorResult(`Could not search Cosmos: ${error instanceof Error ? error.message : error}`);
@@ -352,7 +358,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           const result = await pagedSearch({ query: term, limit: want, cursor: searchCursor, userId: ctx.userId, token, keep });
           const inner = result.nextCursor ? decode<SearchCursor>(result.nextCursor, () => true) : undefined;
           const nextCursor = inner
-            ? encode({ s: "vault", n: first + result.references.length, u: inner.u, k: inner.k, c: collectionId, q: term } satisfies SheetCursor)
+            ? encode({ s: "vault", n: first + result.references.length, u: inner.u, k: inner.k, c: collectionId, q: queryKey(term) } satisfies SheetCursor)
             : undefined;
           return referenceSheets(
             `${scope} for "${term}": ${first} to ${first + result.references.length - 1}. Cosmos ranks by meaning, which does not sort well: judge by looking.`,

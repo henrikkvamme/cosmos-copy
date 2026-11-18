@@ -306,41 +306,52 @@ export class PickStore {
     return join(this.dir, "history", `${username.toLowerCase()}.json`);
   }
 
-  async history(username: string): Promise<HistoryEntry[]> {
+  /**
+   * The history of one user, loaded once. The file object stays the same for each user, and
+   * callers change its entries in one synchronous step after this returns, so two changes at
+   * the same time cannot lose each other.
+   */
+  private async historyOf(username: string): Promise<HistoryFile> {
     const key = username.toLowerCase();
     let file = this.histories.get(key);
     if (!file) {
+      let loaded: HistoryFile;
       try {
         const parsed = JSON.parse(await readFile(this.historyFile(key), "utf8")) as HistoryFile;
-        file = parsed?.version === 1 && Array.isArray(parsed.entries) ? parsed : { version: 1, entries: [] };
+        loaded = parsed?.version === 1 && Array.isArray(parsed.entries) ? parsed : { version: 1, entries: [] };
       } catch {
-        file = { version: 1, entries: [] };
+        loaded = { version: 1, entries: [] };
       }
       // Another call may have loaded it while this one waited.
-      file = this.histories.get(key) ?? file;
+      file = this.histories.get(key) ?? loaded;
       this.histories.set(key, file);
     }
     const cutoff = Date.now() - HISTORY_TTL_MS;
-    file.entries = file.entries.filter((entry) => Date.parse(entry.at) >= cutoff).slice(0, MAX_HISTORY_TASKS);
-    return file.entries;
+    const kept = file.entries.filter((entry) => Date.parse(entry.at) >= cutoff).slice(0, MAX_HISTORY_TASKS);
+    file.entries.splice(0, file.entries.length, ...kept);
+    return file;
+  }
+
+  /** A copy of the history, newest first. */
+  async history(username: string): Promise<HistoryEntry[]> {
+    return [...(await this.historyOf(username)).entries];
   }
 
   async addHistory(username: string, entry: HistoryEntry): Promise<void> {
-    const entries = await this.history(username);
-    entries.unshift({ ...entry, passed: entry.passed.slice(0, MAX_PASSED_PER_TASK) });
-    if (entries.length > MAX_HISTORY_TASKS) entries.length = MAX_HISTORY_TASKS;
+    const file = await this.historyOf(username);
+    file.entries.unshift({ ...entry, passed: entry.passed.slice(0, MAX_PASSED_PER_TASK) });
+    if (file.entries.length > MAX_HISTORY_TASKS) file.entries.length = MAX_HISTORY_TASKS;
     await this.saveHistory(username);
   }
 
   /** Deletes the entries of one task (by name, case does not matter), or all. Returns the number deleted. */
   async clearHistory(username: string, task?: string): Promise<number> {
-    const key = username.toLowerCase();
-    const entries = await this.history(key);
-    const before = entries.length;
+    const file = await this.historyOf(username);
+    const before = file.entries.length;
     const wanted = task?.trim().toLowerCase();
-    const kept = wanted ? entries.filter((entry) => entry.task.trim().toLowerCase() !== wanted) : [];
-    this.histories.set(key, { version: 1, entries: kept });
-    await this.saveHistory(key);
+    const kept = wanted ? file.entries.filter((entry) => entry.task.trim().toLowerCase() !== wanted) : [];
+    file.entries.splice(0, file.entries.length, ...kept);
+    await this.saveHistory(username);
     return before - kept.length;
   }
 

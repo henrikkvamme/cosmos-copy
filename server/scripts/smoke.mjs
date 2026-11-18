@@ -442,6 +442,15 @@ try {
     check("contact_sheet cosmos: the next page goes on numbering at 7", !nextSheet.isError && /^7\. \[\d+\]/m.test(textOf(nextSheet)), textOf(nextSheet).slice(0, 400));
     const otherQuery = await call(vault, "contact_sheet", { source: "cosmos", query: "red poster", cursor: cosmosSheet.structuredContent?.nextCursor });
     check("contact_sheet cosmos: a cursor with another query gives an error", otherQuery.isError === true, textOf(otherQuery));
+    const longQuery = ("暗色仪表板界面设计 dark trading dashboard ").repeat(12).slice(0, 300);
+    const longSheet = await call(vault, "contact_sheet", { source: "cosmos", query: longQuery, count: 3 });
+    const longCursor = longSheet.structuredContent?.nextCursor;
+    if (longCursor) {
+      const longNext = await call(vault, "contact_sheet", { source: "cosmos", query: longQuery, count: 3, cursor: longCursor });
+      check("contact_sheet cosmos: a 300-character query gives a cursor that works", !longNext.isError && longCursor.length < 1000, `${longCursor.length} ${textOf(longNext).slice(0, 200)}`);
+    } else {
+      check("contact_sheet cosmos: a 300-character query gives a result", !longSheet.isError, textOf(longSheet).slice(0, 300));
+    }
     const noQuery = await call(vault, "contact_sheet", { source: "cosmos" });
     check("contact_sheet cosmos: no query gives an error", noQuery.isError === true, textOf(noQuery));
     const vaultSheet = await call(vault, "contact_sheet", { source: "vault", count: 5 });
@@ -645,6 +654,19 @@ try {
     let status = 0;
     for (let i = 0; i < 40 && status !== 429; i++) status = (await fetch(`${base}/p/${newKey().slice(0, 43)}/state`)).status;
     check("many guessed page ids from one IP give 429", status === 429, status);
+  }
+
+  // Two history writes at the same time, after the history is loaded (the old code lost one).
+  {
+    const { PickStore } = await import(join(SERVER_DIR, "dist/picks.js"));
+    const dir = await mkdtemp(join(tmpdir(), "cosmos-mcp-history-"));
+    const store = new PickStore(dir);
+    const entry = (task) => ({ task, at: new Date().toISOString(), picked: [{ id: "1", thumb: "https://cdn.cosmos.so/x" }], passed: [] });
+    await store.history("racer");
+    await Promise.all([store.addHistory("racer", entry("task A")), store.addHistory("racer", entry("task B"))]);
+    const onDisk = JSON.parse(await readFile(join(dir, "history", "racer.json"), "utf8"));
+    check("history: two Done at the same time keep both tasks", onDisk.entries.length === 2, onDisk.entries.map((e) => e.task));
+    await rm(dir, { recursive: true, force: true });
   }
 
   // Logs.
