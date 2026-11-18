@@ -10,14 +10,15 @@ its variants beside them on a canvas page.
 
 | Part | Path | What it does |
 | --- | --- | --- |
-| Extension | `extension/` | Brave or Chrome extension. On cosmos.so, the `C` key copies the element under the cursor, or the open element page. On other sites, the shortcut (default Option+Shift+C) does. It likes the element and saves it to the collection. The popup shows what is on the clipboard; settings sit behind the gear. |
+| Extension | `extension/` | Extension for Brave, Chrome or Ardia. On cosmos.so, the `C` key copies the element under the cursor, or the open element page. On other sites, the shortcut (default Option+Shift+C) does. It likes the element and saves it to the collection. The popup shows what is on the clipboard; settings sit behind the gear. |
 | Native helper | `host/` | Swift program for native messaging. It downloads the media to `~/Downloads/Cosmos References` and puts the file on the macOS clipboard. Images also go on the clipboard as PNG data. |
 | MCP server | `server/` | MCP server over streamable HTTP, hosted at `https://cosmos-mcp.henrikkvamme.no`. The vault at `/mcp/<username>?key=<device key>` reads all your collections, searches all of Cosmos, saves references and runs the design flow (picker, contact sheets, canvas). A public collection is also open without login at `/mcp/<username>/<collection-slug>`. |
 
 ## Install the extension (macOS)
 
-1. Run `./install.sh`. It builds the native helper and registers it with Brave and Chrome.
+1. Run `./install.sh`. It builds the native helper and registers it with Brave, Chrome and Ardia.
 2. Open `brave://extensions`, turn on Developer mode, click "Load unpacked" and select `extension/`.
+   In Ardia, open Settings, turn on "Show advanced settings", open Extensions and use "Load unpacked extension".
    The extension ID is fixed (`gdkbjkepnfmnonhgfjmklmmnboiamdad`), because `manifest.json` has a `key`.
 3. Sign in to cosmos.so in the same browser.
 4. To change the shortcut for other sites, open `brave://extensions/shortcuts`. On cosmos.so the key is always `C`.

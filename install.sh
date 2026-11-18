@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the native helper and registers it with Brave (and Chrome, if installed).
+# Builds the native helper and registers it with Brave, and with Chrome and Ardia if installed.
 set -eu
 cd "$(dirname "$0")"
 ROOT="$(pwd)"
@@ -8,7 +8,8 @@ swiftc -O host/main.swift -o bin/cosmos-copy-host
 EXT_ID="gdkbjkepnfmnonhgfjmklmmnboiamdad"
 for dir in \
   "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts" \
-  "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"; do
+  "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" \
+  "$HOME/Library/Application Support/com.ardia.browser/Chromium/NativeMessagingHosts"; do
   [ -d "$(dirname "$dir")" ] || continue
   mkdir -p "$dir"
   cat > "$dir/com.henrikkvamme.cosmos_copy.json" <<JSON
