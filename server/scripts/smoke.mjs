@@ -59,6 +59,8 @@ async function startServer() {
       TRUST_PROXY: "0",
       KEY_FAILURE_LIMIT: "20",
       LINK_RATE_LIMIT: "60",
+      PICK_WAIT_MS: "3000",
+      PAGE_GUESS_LIMIT: "30",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -290,7 +292,19 @@ try {
     check(
       "vault: tools",
       JSON.stringify(tools) ===
-        JSON.stringify(["get_reference", "list_collections", "list_references", "save_reference", "search_cosmos", "search_references"]),
+        JSON.stringify([
+          "clear_pick_history",
+          "contact_sheet",
+          "get_reference",
+          "list_collections",
+          "list_references",
+          "save_reference",
+          "search_cosmos",
+          "search_references",
+          "show_variants",
+          "start_picks",
+          "wait_for_picks",
+        ]),
       tools,
     );
 
@@ -403,6 +417,171 @@ try {
     );
   }
 
+  // The design flow: contact sheets, a pick session, the canvas and the history.
+  {
+    const images = (result) => (result.content ?? []).filter((c) => c.type === "image");
+    const page = (path, init = {}) => fetch(base + path, init);
+    const json = (body) => ({ method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const post = (body) => ({ ...json(body), method: "POST" });
+
+    const instructions = vault.getInstructions() ?? "";
+    check("design: the server instructions name the flow", instructions.includes("start_picks") && instructions.includes("wait_for_picks") && instructions.includes("Never ask Henrik"), instructions);
+
+    const noHistory = await call(vault, "contact_sheet", { source: "history" });
+    check("contact_sheet history: empty at first", !noHistory.isError && textOf(noHistory).includes("No pick history yet") && images(noHistory).length === 0, textOf(noHistory));
+
+    const cosmosSheet = await call(vault, "contact_sheet", { source: "cosmos", query: "dark web dashboard", count: 6 });
+    check(
+      "contact_sheet cosmos: one JPEG sheet and 6 numbered lines",
+      !cosmosSheet.isError && images(cosmosSheet).length === 1 && images(cosmosSheet)[0].mimeType === "image/jpeg" && /^6\. \[\d+\]/m.test(textOf(cosmosSheet)),
+      textOf(cosmosSheet).slice(0, 600),
+    );
+    const sheetJpeg = Buffer.from(images(cosmosSheet)[0]?.data ?? "", "base64");
+    check("contact_sheet cosmos: the image is a real JPEG", sheetJpeg[0] === 0xff && sheetJpeg[1] === 0xd8 && sheetJpeg.length > 5000, sheetJpeg.length);
+    const nextSheet = await call(vault, "contact_sheet", { source: "cosmos", query: "dark web dashboard", count: 3, cursor: cosmosSheet.structuredContent?.nextCursor });
+    check("contact_sheet cosmos: the next page goes on numbering at 7", !nextSheet.isError && /^7\. \[\d+\]/m.test(textOf(nextSheet)), textOf(nextSheet).slice(0, 400));
+    const otherQuery = await call(vault, "contact_sheet", { source: "cosmos", query: "red poster", cursor: cosmosSheet.structuredContent?.nextCursor });
+    check("contact_sheet cosmos: a cursor with another query gives an error", otherQuery.isError === true, textOf(otherQuery));
+    const noQuery = await call(vault, "contact_sheet", { source: "cosmos" });
+    check("contact_sheet cosmos: no query gives an error", noQuery.isError === true, textOf(noQuery));
+    const vaultSheet = await call(vault, "contact_sheet", { source: "vault", count: 5 });
+    check(
+      "contact_sheet vault: newest saves as a sheet (fake images do not load and are named)",
+      !vaultSheet.isError && images(vaultSheet).length === 1 && textOf(vaultSheet).includes("did not load") && /^5\. \[9000\d\d\]/m.test(textOf(vaultSheet)),
+      textOf(vaultSheet).slice(0, 600),
+    );
+    const bigSheet = await call(vault, "contact_sheet", { source: "cosmos", query: "mobile onboarding", count: 40 });
+    check("contact_sheet: 40 references give 2 sheets", !bigSheet.isError && images(bigSheet).length === 2, images(bigSheet).length);
+
+    // A pick session.
+    const candidates = ["2133684761", "320548184", "603155855", "not-an-id"];
+    const started = await call(vault, "start_picks", { task: "Web dashboard for energy trading", candidates });
+    const sessionId = started.structuredContent?.session;
+    const link = started.structuredContent?.link ?? "";
+    secret(sessionId);
+    check(
+      "start_picks: returns the picker link and skips a bad id",
+      !started.isError && link.endsWith(`/p/${sessionId}`) && started.structuredContent.candidates === 3 && started.structuredContent.skipped.includes("not-an-id") && textOf(started).includes("Do not ask Henrik"),
+      textOf(started),
+    );
+    const guessed = newKey().slice(0, 43);
+    check("picker: a guessed session id gives 404", (await page(`/p/${guessed}`)).status === 404 && (await page(`/p/${guessed}/state`)).status === 404);
+    const html = await page(`/p/${sessionId}`);
+    check(
+      "picker: the page has a strict CSP and no referrer",
+      html.status === 200 && html.headers.get("referrer-policy") === "no-referrer" && (html.headers.get("content-security-policy") ?? "").includes("script-src 'self'") && (await html.text()).includes("/assets/picker.js"),
+    );
+    check("picker: the script is served", (await page("/assets/picker.js")).status === 200 && (await page("/assets/canvas.js")).status === 200 && (await page("/assets/pages.css")).status === 200);
+    const before = await (await page(`/p/${sessionId}/state`)).json();
+    check("picker: the state has 3 tiles and no picks", before.tiles.length === 3 && before.picked.length === 0 && before.status === "open", before);
+    check("picker: a write without JSON content type gives 415", (await page(`/p/${sessionId}/state`, { method: "PUT", body: "{}" })).status === 415);
+
+    const notYet = await call(vault, "wait_for_picks", { session: sessionId });
+    check("wait_for_picks: not done yet after the wait, with the count so far", !notYet.isError && textOf(notYet).startsWith("Not done yet") && textOf(notYet).includes("has the picker open"), textOf(notYet));
+
+    const waiting = call(vault, "wait_for_picks", { session: link });
+    const [first, second, third] = before.tiles.map((t) => t.id);
+    const saved = await (await page(`/p/${sessionId}/state`, json({ picked: [first, "999"], hidden: [third] }))).json();
+    check("picker: a click saves the picks and drops unknown ids", JSON.stringify(saved.picked) === JSON.stringify([first]) && JSON.stringify(saved.hidden) === JSON.stringify([third]), saved);
+    const more = await page(`/p/${sessionId}/more`, post({ picked: [first], hidden: [third] }));
+    const moreBody = await more.json();
+    check("picker: More like these adds up to 12 new tiles", more.status === 200 && moreBody.added.length > 0 && moreBody.added.length <= 12 && moreBody.tiles.length === 3 + moreBody.added.length && moreBody.rounds === 1, { status: more.status, added: moreBody.added?.length });
+    const extra = moreBody.added?.[0];
+    const doneAt = Date.now();
+    const done = await (await page(`/p/${sessionId}/done`, post({ picked: [first, extra], hidden: [third] }))).json();
+    check("picker: Done stores the picks", done.status === "done" && JSON.stringify(done.picked) === JSON.stringify([first, extra]), done);
+    const picks = await waiting;
+    check(
+      "wait_for_picks: a waiting call returns the picks as images when Done is clicked",
+      !picks.isError && images(picks).length === 2 && textOf(picks).includes(`Pick 1: [${first}]`) && textOf(picks).includes(`Pick 2: [${extra}]`) && Date.now() - doneAt < 3000,
+      textOf(picks).slice(0, 400),
+    );
+    check(
+      "wait_for_picks: the result carries the plan, build and show steps",
+      textOf(picks).includes("Propose at most 3 variants") && textOf(picks).includes("three rounds") && textOf(picks).includes("show_variants"),
+      textOf(picks).slice(-900),
+    );
+    const again = await call(vault, "wait_for_picks", { session: sessionId });
+    check("wait_for_picks: a later call returns the same picks at once", !again.isError && JSON.stringify(again.structuredContent?.picks?.map((p) => p.id)) === JSON.stringify([first, extra]));
+    check("picker: a write after Done gives 409", (await page(`/p/${sessionId}/state`, json({ picked: [] }))).status === 409);
+    const unknown = await call(vault, "wait_for_picks", { session: guessed });
+    check("wait_for_picks: an unknown session gives an error", unknown.isError === true, textOf(unknown));
+    {
+      const otherClient = await mcp(vaultPath("otheruser", keyOther));
+      const foreign = await call(otherClient, "wait_for_picks", { session: sessionId });
+      check("wait_for_picks: another user cannot read the session", foreign.isError === true, textOf(foreign));
+      await otherClient.close();
+    }
+
+    // The history.
+    const history = await call(vault, "contact_sheet", { source: "history" });
+    check(
+      "contact_sheet history: one task, picked and passed",
+      !history.isError && images(history).length === 1 && textOf(history).includes('Task "Web dashboard for energy trading"') && textOf(history).includes("picked 1-2"),
+      textOf(history).slice(0, 500),
+    );
+    const historyFile = JSON.parse(await readFile(join(dataDir, "history", "henrikkvamme.json"), "utf8"));
+    const entry = historyFile.entries[0];
+    check(
+      "history: picked ids, passed ids without the hidden tile, time",
+      JSON.stringify(entry.picked.map((i) => i.id)) === JSON.stringify([first, extra]) && entry.passed.some((i) => i.id === second) && !entry.passed.some((i) => i.id === third) && Boolean(entry.at),
+      entry,
+    );
+    check("history: the file has mode 600", ((await stat(join(dataDir, "history", "henrikkvamme.json"))).mode & 0o777) === 0o600);
+
+    // A no-pick Done.
+    const empty = await call(vault, "start_picks", { task: "Landing page", candidates: [REAL_ELEMENT] });
+    secret(empty.structuredContent?.session);
+    await page(`/p/${empty.structuredContent?.session}/done`, post({ picked: [] }));
+    const none = await call(vault, "wait_for_picks", { session: empty.structuredContent?.session });
+    check("wait_for_picks: Done without picks says nothing fits", !none.isError && textOf(none).includes("without picks") && textOf(none).includes("start_picks"), textOf(none));
+
+    // The canvas.
+    const shown = await call(vault, "show_variants", {
+      task: "Web dashboard for energy trading",
+      variants: [
+        { name: "Close match of pick 1", takes: [{ id: first }] },
+        { name: "Layout of pick 1, colours of pick 2", takes: [{ id: first, what: "layout" }, { id: extra, what: "colours" }] },
+      ],
+    });
+    const canvasLink = shown.structuredContent?.link ?? "";
+    const uploads = shown.structuredContent?.uploads ?? [];
+    const boardId = canvasLink.split("/v/")[1];
+    secret(boardId);
+    for (const upload of uploads) secret(upload.url.split("/u/")[1]?.split("/")[0]);
+    check("show_variants: a canvas link and 2 upload commands", !shown.isError && /\/v\/[A-Za-z0-9_-]{43}$/.test(canvasLink) && uploads.length === 2 && textOf(shown).includes("curl -sS --fail -T"), textOf(shown));
+    const uploadPath = new URL(uploads[0]?.url ?? base).pathname;
+    const sharp = (await import("sharp")).default;
+    const png = await sharp({ create: { width: 1440, height: 900, channels: 3, background: "#203040" } }).png().toBuffer();
+    const put = await page(uploadPath, { method: "PUT", body: png });
+    check("upload: a PNG is stored", put.status === 200 && (await put.text()).includes("1440 x 900"), put.status);
+    check("upload: garbage gives 400", (await page(uploadPath, { method: "PUT", body: Buffer.from("not an image") })).status === 400);
+    check("upload: a guessed upload id gives 404", (await page(`/u/${newKey().slice(0, 43)}/1`, { method: "PUT", body: png })).status === 404);
+    check("upload: the view id cannot upload", (await page(`/u/${boardId}/1`, { method: "PUT", body: png })).status === 404);
+    check("upload: variant 3 of 2 gives 404", (await page(uploadPath.replace(/\/1$/, "/3"), { method: "PUT", body: png })).status === 404);
+    const board = await (await page(`/v/${boardId}/state`)).json();
+    check(
+      "canvas: the state has the variants, their picks and the first screenshot",
+      board.variants.length === 2 && board.variants[0].image?.w === 1440 && board.variants[1].image === null && board.variants[1].takes.map((t) => t.what).join() === "layout,colours",
+      board,
+    );
+    const img = await page(`/v/${boardId}/img/1`);
+    check("canvas: the screenshot is served as WebP", img.status === 200 && img.headers.get("content-type") === "image/webp");
+    check("canvas: a missing screenshot gives 404", (await page(`/v/${boardId}/img/2`)).status === 404);
+    check("canvas: the page is served", (await page(`/v/${boardId}`)).status === 200);
+    check("canvas: a guessed board id gives 404", (await page(`/v/${newKey().slice(0, 43)}/state`)).status === 404);
+    const picksFile = await readFile(join(dataDir, "picks.json"), "utf8");
+    check("picks.json holds no session or board id, only hashes", !picksFile.includes(sessionId) && !picksFile.includes(boardId));
+
+    // Clearing the history.
+    const cleared = await call(vault, "clear_pick_history", { task: "web dashboard for energy trading" });
+    check("clear_pick_history: deletes the entries of one task", !cleared.isError && cleared.structuredContent?.removed === 1, textOf(cleared));
+    const clearedAll = await call(vault, "clear_pick_history", {});
+    check("clear_pick_history: deletes the rest", !clearedAll.isError && clearedAll.structuredContent?.removed === 1, textOf(clearedAll));
+    const afterClear = await call(vault, "contact_sheet", { source: "history" });
+    check("contact_sheet history: empty after clearing", textOf(afterClear).includes("No pick history yet"), textOf(afterClear));
+  }
+
   // A token Cosmos no longer accepts.
   {
     fake.state.revoked.add(t3);
@@ -459,12 +638,20 @@ try {
     check("many wrong keys from one IP give 429", status === 429, status);
   }
 
+  // Rate limit of guessed page ids (after all other page checks: it blocks this IP).
+  {
+    let status = 0;
+    for (let i = 0; i < 40 && status !== 429; i++) status = (await fetch(`${base}/p/${newKey().slice(0, 43)}/state`)).status;
+    check("many guessed page ids from one IP give 429", status === 429, status);
+  }
+
   // Logs.
   {
     await stopServer();
     const leaked = secrets.filter((value) => output.includes(value));
     check("server logs hold no token and no device key", leaked.length === 0, `${leaked.length} secrets found in the log`);
     check("server logs hold no query string of a vault request", !output.includes("?key="));
+    check("server logs show page paths with :id", output.includes('"path":"/p/:id/state"') && output.includes('"path":"/u/:id/1"'));
     check("anonymous route never sent a token (whole run)", fake.requests.filter((r) => r.op === "CosmosMcpCollection").every((r) => !r.auth));
     check("every Cosmos request sent the cosmos-mcp user agent", fake.requests.every((r) => String(r.userAgent).startsWith("cosmos-mcp/0.1")));
   }

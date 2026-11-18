@@ -67,18 +67,23 @@ async function encode(input: Buffer, longEdge: number, quality: number) {
     .toBuffer({ resolveWithObject: true });
 }
 
-/** Returns the image of an image reference, or the thumbnail of a video reference. */
-export async function loadVisual(reference: Reference): Promise<Visual> {
+/**
+ * Returns the image of an image reference, or the thumbnail of a video reference, with a long edge
+ * of at most `maxLongEdge` pixels.
+ */
+export async function loadVisual(reference: Pick<Reference, "thumbnailUrl" | "width">, maxLongEdge = MAX_LONG_EDGE): Promise<Visual> {
   const source = reference.thumbnailUrl;
   if (!source) throw new Error("the reference has no image");
-  const cached = cacheGet(source);
+  const longEdgeCap = Math.min(maxLongEdge, MAX_LONG_EDGE);
+  const cacheKey = longEdgeCap === MAX_LONG_EDGE ? source : `${source}#${longEdgeCap}`;
+  const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
   // Ask the CDN for a WebP copy, which is a smaller download. The CDN enlarges an image when "w"
   // is larger than its width, so never ask for more than the known width.
   const resized = new URL(source);
   resized.searchParams.set("format", "webp");
-  if (reference.width) resized.searchParams.set("w", String(Math.min(reference.width, MAX_LONG_EDGE)));
+  if (reference.width) resized.searchParams.set("w", String(Math.min(reference.width, longEdgeCap)));
   let input: Buffer;
   try {
     input = await download(resized.toString());
@@ -86,12 +91,12 @@ export async function loadVisual(reference: Reference): Promise<Visual> {
     input = await download(source);
   }
 
-  const attempts: [number, number][] = [
-    [MAX_LONG_EDGE, 85],
-    [MAX_LONG_EDGE, 70],
+  const attempts = ([
+    [longEdgeCap, 85],
+    [longEdgeCap, 70],
     [1024, 70],
     [768, 60],
-  ];
+  ] as [number, number][]).filter(([edge], index) => index < 2 || edge < longEdgeCap);
   for (const [longEdge, quality] of attempts) {
     const { data, info } = await encode(input, longEdge, quality);
     const base64 = data.toString("base64");
@@ -103,7 +108,7 @@ export async function loadVisual(reference: Reference): Promise<Visual> {
       height: info.height,
       sourceUrl: source,
     };
-    cachePut(source, visual);
+    cachePut(cacheKey, visual);
     return visual;
   }
   throw new Error("the image stays too large after downscaling");

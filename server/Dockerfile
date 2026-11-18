@@ -13,7 +13,8 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-# Linked accounts (links.json, mode 600). Mount a named volume here. A new named volume takes the
+COPY pages ./pages
+# Linked accounts (links.json), pick sessions, variant screenshots and the pick history, all mode 600. Mount a named volume here. A new named volume takes the
 # owner of this directory (node), so the server can write it. Do not back up this volume: it holds
 # the Cosmos login tokens.
 RUN mkdir -p /data && chown node:node /data && chmod 700 /data

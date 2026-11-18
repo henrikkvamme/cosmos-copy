@@ -124,21 +124,8 @@ export class LinkStore {
     return run;
   }
 
-  private async writeFile(): Promise<void> {
-    const temporary = `${this.file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-    const handle = await open(temporary, "wx", 0o600);
-    try {
-      await handle.writeFile(JSON.stringify(this.data, null, 2) + "\n", "utf8");
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    try {
-      await rename(temporary, this.file);
-    } catch (error) {
-      await unlink(temporary).catch(() => undefined);
-      throw error;
-    }
+  private writeFile(): Promise<void> {
+    return writeFileAtomic(this.file, JSON.stringify(this.data, null, 2) + "\n");
   }
 
   private saveInBackground(log: (fields: Record<string, unknown>) => void): void {
@@ -244,6 +231,24 @@ export class LinkStore {
       if (account.devices.length === 0) delete this.data.accounts[key];
     }
     return removed;
+  }
+}
+
+/** Writes a file with mode 600: to a temporary file first, then a rename, so a crash never leaves half a file. */
+export async function writeFileAtomic(file: string, data: string | Buffer): Promise<void> {
+  const temporary = `${file}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  const handle = await open(temporary, "wx", 0o600);
+  try {
+    await handle.writeFile(data);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await rename(temporary, file);
+  } catch (error) {
+    await unlink(temporary).catch(() => undefined);
+    throw error;
   }
 }
 

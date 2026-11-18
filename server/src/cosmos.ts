@@ -544,3 +544,75 @@ export async function searchElements(options: {
     count: result?.meta.count ?? undefined,
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Similar elements
+
+const SIMILAR_QUERY = `
+query CosmosMcpSimilarElements($elementId: ElementId!) {
+  similarElements(elementIds: [$elementId]) {
+    items { id videoUrl image { url width height } }
+  }
+}`;
+const SIMILAR_TTL_MS = 60 * 60_000;
+const MAX_CACHED_SIMILAR = 200;
+const MAX_SIMILAR = 200;
+
+/** A Cosmos element that looks like another one: enough to show it as a tile. */
+export interface SimilarElement {
+  id: string;
+  /** The still image on cdn.cosmos.so (for a video: its poster). */
+  thumb: string;
+  width?: number;
+  height?: number;
+  kind: "image" | "video";
+}
+
+const similar = new Map<string, CacheEntry<SimilarElement[]>>();
+
+async function fetchSimilar(id: string): Promise<SimilarElement[]> {
+  const data = await graphql<{
+    similarElements: {
+      items: { id: number | string; videoUrl?: string | null; image?: { url?: string | null; width?: number | null; height?: number | null } | null }[];
+    } | null;
+  }>(SIMILAR_QUERY, { elementId: Number(id) });
+  const found: SimilarElement[] = [];
+  const seen = new Set<string>([id]);
+  for (const item of data.similarElements?.items ?? []) {
+    const itemId = String(item.id);
+    const thumb = item.image?.url;
+    if (seen.has(itemId) || !thumb || !thumb.startsWith("https://cdn.cosmos.so/")) continue;
+    seen.add(itemId);
+    found.push({
+      id: itemId,
+      thumb,
+      width: item.image?.width ?? undefined,
+      height: item.image?.height ?? undefined,
+      kind: item.videoUrl ? "video" : "image",
+    });
+    if (found.length >= MAX_SIMILAR) break;
+  }
+  return found;
+}
+
+/**
+ * Elements that look like one element, best match first. Cosmos takes one element per request.
+ * Public data, so results stay in memory for an hour.
+ */
+export async function getSimilarElements(id: string): Promise<SimilarElement[]> {
+  const entry = similar.get(id);
+  if (entry?.value && Date.now() - entry.at < SIMILAR_TTL_MS) return entry.value;
+  if (entry?.inflight) return entry.inflight;
+  const inflight = fetchSimilar(id).then(
+    (value) => {
+      remember(similar, id, { value, at: Date.now() }, MAX_CACHED_SIMILAR);
+      return value;
+    },
+    (error: unknown) => {
+      similar.delete(id);
+      throw error;
+    },
+  );
+  remember(similar, id, { at: 0, inflight }, MAX_CACHED_SIMILAR);
+  return inflight;
+}

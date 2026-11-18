@@ -5,16 +5,19 @@
 //   POST /mcp/:username?key=…   The vault: all collections of a linked account. Needs a device key.
 //   POST /link                  {token, deviceKey, deviceName}: link a device and relay the Cosmos token.
 //   POST /unlink                {deviceKey}: remove a device.
+//   /p/<id>, /v/<id>, /u/<id>   Picker page, variants canvas and screenshot upload (see pages.ts).
 //   GET  /health                "ok"
 //   GET  /                      usage
 //
-// Never log a token, a device key or the body of /link and /unlink.
+// Never log a token, a device key, a page id or the body of /link and /unlink.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CosmosError, getCollection, JWT_PATTERN, SLUG_PATTERN, USERNAME_PATTERN, type Collection } from "./cosmos.js";
 import { buildInstructions, buildServer } from "./mcp.js";
+import { Pages } from "./pages.js";
+import { PickStore } from "./picks.js";
 import { clientIp, RateLimiter } from "./ratelimit.js";
 import { isExpired, jwtExpiry, LinkStore, TooManyDevicesError } from "./store.js";
 import { buildVaultServer, fetchMe } from "./vault.js";
@@ -35,6 +38,9 @@ const ALLOWED_USERS = new Set(
 const DEVICE_KEY_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
 const store = new LinkStore(DATA_DIR);
+const picks = new PickStore(DATA_DIR);
+/** The public origin for the links in tool results. Without it, the request's host is used. */
+const PUBLIC_URL = (process.env.PUBLIC_URL ?? "").replace(/\/+$/, "");
 /** /link and /unlink calls per IP. */
 const linkLimiter = new RateLimiter(Number(process.env.LINK_RATE_LIMIT ?? 30), 15 * 60_000);
 /** Vault requests with a missing or wrong key, per IP. Over the limit, the IP gets 429. */
@@ -48,7 +54,8 @@ MCP endpoint (Streamable HTTP, stateless, no login):
 
 Vault of a linked account (needs the device key from the browser extension):
   POST /mcp/<username>?key=<deviceKey>
-  Tools: list_collections, list_references, search_references, get_reference, search_cosmos, save_reference.
+  Tools: list_collections, list_references, search_references, get_reference, search_cosmos, save_reference,
+  contact_sheet, start_picks, wait_for_picks, show_variants, clear_pick_history.
 
 Add it to Claude Code:
   claude mcp add --transport http cosmos https://<this-host>/mcp/<username>/<slug>
@@ -58,6 +65,17 @@ Health: GET /health
 
 function log(fields: Record<string, unknown>): void {
   console.log(JSON.stringify({ time: new Date().toISOString(), ...fields }));
+}
+
+const pages = new Pages(picks, log);
+
+/** The origin of this server as the client sees it, for links in tool results. */
+function baseUrl(req: IncomingMessage): string {
+  if (PUBLIC_URL) return PUBLIC_URL;
+  const forwarded = process.env.TRUST_PROXY !== "0" ? String(req.headers["x-forwarded-proto"] ?? "").split(",")[0]?.trim() : "";
+  const proto = forwarded === "https" || forwarded === "http" ? forwarded : "http";
+  const host = /^[A-Za-z0-9.-]+(:\d+)?$/.test(req.headers.host ?? "") ? req.headers.host : `localhost:${PORT}`;
+  return `${proto}://${host}`;
 }
 
 function sendText(res: ServerResponse, status: number, text: string, headers: Record<string, string> = {}): void {
@@ -157,6 +175,9 @@ async function handleVault(req: IncomingMessage, res: ServerResponse, username: 
     userId: account.userId,
     token: () => store.token(account.username, log)?.token,
     dropToken: (token) => store.dropToken(account.username, token, log),
+    picks,
+    baseUrl: baseUrl(req),
+    log,
   });
   await serve(req, res, server, read.body);
   return rpcMethods(read.body);
@@ -279,7 +300,7 @@ const httpServer = createServer((req, res) => {
 
   res.on("finish", () => {
     if (path === "/health") return;
-    log({ method: req.method, path, status: res.statusCode, ms: Date.now() - started, ...(methods.length ? { rpc: methods } : {}) });
+    log({ method: req.method, path: Pages.logPath(path), status: res.statusCode, ms: Date.now() - started, ...(methods.length ? { rpc: methods } : {}) });
   });
 
   void (async () => {
@@ -296,6 +317,7 @@ const httpServer = createServer((req, res) => {
       const ip = clientIp(req);
       return path === "/link" ? handleLink(req, res, ip) : handleUnlink(req, res, ip);
     }
+    if (await pages.handle(req, res, path, clientIp(req))) return;
     const vaultMatch = /^\/mcp\/([^/]+)$/.exec(path);
     if (vaultMatch) {
       if (req.method !== "POST") return sendRpcError(res, 405, -32000, "Method not allowed. Use POST.", { allow: "POST" });
@@ -323,7 +345,7 @@ const httpServer = createServer((req, res) => {
     }
     methods = await handleMcp(req, res, username, slug);
   })().catch((error: unknown) => {
-    log({ level: "error", path, error: error instanceof Error ? (error.stack ?? error.message) : String(error) });
+    log({ level: "error", path: Pages.logPath(path), error: error instanceof Error ? (error.stack ?? error.message) : String(error) });
     if (!res.headersSent) sendRpcError(res, 500, -32603, "Internal server error.");
     else res.end();
   });
@@ -334,6 +356,8 @@ httpServer.headersTimeout = 15_000;
 httpServer.setTimeout(REQUEST_TIMEOUT_MS + 5_000);
 
 await store.load(log);
+await picks.load(log);
+setInterval(() => void picks.prune(log), 60 * 60_000).unref();
 httpServer.listen(PORT, "0.0.0.0", () => log({ event: "listening", port: PORT, dataDir: DATA_DIR, linkStore: store.writable ? "writable" : "unwritable" }));
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {

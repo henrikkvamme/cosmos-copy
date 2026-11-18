@@ -19,6 +19,7 @@ import {
   type RawElement,
   type Reference,
 } from "./cosmos.js";
+import { registerDesignTools, type DesignContext } from "./design.js";
 import {
   compactText,
   DEFAULT_LIMIT,
@@ -116,7 +117,7 @@ interface RawCluster {
 }
 
 /** Counts upstream requests of one tool call, so a Cosmos fault cannot make a call run forever. */
-class Budget {
+export class Budget {
   used = 0;
   spend(): void {
     this.used += 1;
@@ -323,7 +324,7 @@ export async function mergeCollections(
 }
 
 /** All element ids of one collection, up to MAX_ELEMENTS. */
-async function collectionElementIds(collection: VaultCollection, token: string, budget: Budget): Promise<Set<string>> {
+export async function collectionElementIds(collection: VaultCollection, token: string, budget: Budget): Promise<Set<string>> {
   const stream = new ConnectionStream(collection, token, budget);
   const ids = new Set<string>();
   while (ids.size < MAX_ELEMENTS) {
@@ -354,23 +355,23 @@ async function saveToCollection(userId: string, elementId: string, collection: V
 // ---------------------------------------------------------------------------------------------
 // Cursors
 
-interface ListCursor {
+export interface ListCursor {
   o: number;
   c?: string;
 }
 
-interface SearchCursor {
+export interface SearchCursor {
   /** The upstream cursor of the page to read, null for the first page. */
   u: string | null;
   /** Items of that page that were already looked at. */
   k: number;
 }
 
-function encode(value: object): string {
+export function encode(value: object): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
 
-function decode<T>(cursor: string, check: (value: Record<string, unknown>) => boolean): T | undefined {
+export function decode<T>(cursor: string, check: (value: Record<string, unknown>) => boolean): T | undefined {
   try {
     const value = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Record<string, unknown>;
     return value && typeof value === "object" && check(value) ? (value as T) : undefined;
@@ -379,7 +380,7 @@ function decode<T>(cursor: string, check: (value: Record<string, unknown>) => bo
   }
 }
 
-const isCount = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value >= 0;
+export const isCount = (value: unknown) => typeof value === "number" && Number.isInteger(value) && value >= 0;
 
 function decodeListCursor(cursor: string): ListCursor | undefined {
   return decode<ListCursor>(cursor, (v) => isCount(v.o) && (v.c === undefined || typeof v.c === "string"));
@@ -393,7 +394,7 @@ function decodeSearchCursor(cursor: string): SearchCursor | undefined {
  * Runs searchElements page by page until `limit` references pass the filter. The cursor marks the
  * upstream page and the position in it, so no result is skipped between calls.
  */
-async function pagedSearch(options: {
+export async function pagedSearch(options: {
   query: string;
   kind?: "image" | "video";
   limit: number;
@@ -464,14 +465,20 @@ export function buildVaultInstructions(username: string): string {
     "Use search_references to find saved references by meaning, list_references to see the newest saves, and list_collections to see the collections.",
     "Use search_cosmos to find new references on all of Cosmos. Use save_reference only when Henrik asks you to save something.",
     "The list and search tools return text only. Call get_reference with an id to see the image.",
-  ].join(" ");
+    "",
+    "When you design a screen, page or UI for Henrik, start from references he picks for that task:",
+    "1. Candidates: call contact_sheet with source history (his earlier picks and passes), then with source vault, and with source cosmos and a query for the task. Choose up to 40 candidates by looking, likely picks first.",
+    "2. Picks: call start_picks with the task and the candidate ids, and give Henrik the link. Then call wait_for_picks until it returns his picks. Never ask Henrik to tell you that he is done: the server tells you.",
+    "3. Plan, build and show: follow the steps in the wait_for_picks result. At the end, call show_variants.",
+    "Use clear_pick_history only when Henrik asks.",
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------------------------
 // Server
 
-export function buildVaultServer(ctx: VaultContext): McpServer {
-  const server = new McpServer({ name: "cosmos-vault", version: "0.2.0" }, { instructions: buildVaultInstructions(ctx.username) });
+export function buildVaultServer(ctx: DesignContext): McpServer {
+  const server = new McpServer({ name: "cosmos-vault", version: "0.3.0" }, { instructions: buildVaultInstructions(ctx.username) });
   const kindSchema = z.enum(["image", "video"]).optional().describe("Return only images or only videos (videos include animated GIFs).");
   const collectionSchema = z
     .string()
@@ -774,5 +781,6 @@ export function buildVaultServer(ctx: VaultContext): McpServer {
       }),
   );
 
+  registerDesignTools(server, ctx, withToken);
   return server;
 }
