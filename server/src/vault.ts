@@ -470,6 +470,10 @@ export function buildVaultInstructions(username: string): string {
     "1. Candidates: call contact_sheet with source history (his earlier picks and passes), then with source vault, and with source cosmos and a query for the task. Choose up to 40 candidates by looking, likely picks first.",
     "2. Picks: call start_picks with the task and the candidate ids, and give Henrik the link. Then call wait_for_picks until it returns his picks. Never ask Henrik to tell you that he is done: the server tells you.",
     "3. Plan, build and show: follow the steps in the wait_for_picks result. At the end, call show_variants.",
+    "",
+    "An image that Henrik copied with Cosmos Copy has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65\": the reference id and two check digits. The strip is not part of the design.",
+    "When Henrik pastes such images for a design task, call note_references with the task and the labels. They are his picks, so skip steps 1 and 2 and follow the steps in the result.",
+    "When Henrik says that he does not want a reference, or that he did not like what came of it, call note_references with it in rejected.",
     "Use clear_pick_history only when Henrik asks.",
   ].join("\n");
 }

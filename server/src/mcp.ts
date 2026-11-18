@@ -97,6 +97,21 @@ export function parseId(value: string | number): string | undefined {
   return match?.[1];
 }
 
+/** The two check digits of a reference id on the strip of a copied image (mod 97, as in an IBAN). */
+export function checkDigits(id: string): string {
+  return String(98n - ((BigInt(id) * 100n) % 97n)).padStart(2, "0");
+}
+
+/**
+ * The id from the label on the strip of a copied image, such as "cosmos 1850854004-65".
+ * `bad` means the check digits are missing or wrong: the label was read wrongly.
+ */
+export function parseLabel(value: string | number): { id: string } | { bad: string } {
+  const text = String(value).trim();
+  const match = /^(?:cosmos[\s:-]*)?(\d{1,19})\s*-\s*(\d{2})$/i.exec(text);
+  return match && checkDigits(match[1]!) === match[2] ? { id: match[1]! } : { bad: text };
+}
+
 export const limitSchema = z
   .number()
   .int()

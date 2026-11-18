@@ -8,13 +8,14 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { CosmosError, getElement, getElementWithToken, type Reference } from "./cosmos.js";
 import { loadVisual } from "./image.js";
-import { errorResult, parseId } from "./mcp.js";
+import { errorResult, parseId, parseLabel } from "./mcp.js";
 import {
   ID_PATTERN,
   MAX_CANDIDATES,
   MAX_VARIANTS,
   type BoardRef,
   type HistoryEntry,
+  type HistoryItem,
   type PickStore,
   type Session,
   type Tile,
@@ -607,6 +608,135 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       ];
       if (missing.length) lines.push("", `Left out (could not be read): ${missing.join(", ")}.`);
       return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: { link, uploads, missing } };
+    },
+  );
+
+  // ---- note_references ----
+
+  const MAX_NOTED = 20;
+
+  server.registerTool(
+    "note_references",
+    {
+      title: "Note pasted and rejected references",
+      description:
+        "Tell the server which references Henrik pasted into the chat for a design task, and which ones he rejects. An image copied " +
+        'with Cosmos Copy has a thin dark strip at its bottom edge with a label such as "cosmos 1850854004-65" (the reference id and ' +
+        "two check digits). Pasted references count as his picks for the task, so no picker is needed. Call it again with rejected when " +
+        "Henrik says that he does not want a reference, or did not like what came of it: it then counts as passed.",
+      inputSchema: {
+        task: z.string().min(1).max(200).describe('The design task in a few words, such as "Onboarding for an iOS travel app". Use the same words in later calls for this task.'),
+        pasted: z
+          .array(z.string().min(1).max(60))
+          .max(MAX_NOTED)
+          .optional()
+          .describe('The labels on the strips of the pasted images, read digit by digit, such as "1850854004-65". The check digits are required.'),
+        rejected: z
+          .array(z.union([z.string().min(1).max(200), z.number().int().positive()]))
+          .max(MAX_NOTED)
+          .optional()
+          .describe("References Henrik rejects: a label from a strip, or a reference id."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ task, pasted = [], rejected = [] }) => {
+      if (pasted.length === 0 && rejected.length === 0) return errorResult("Give pasted, rejected or both.");
+      const pastedIds: string[] = [];
+      const misread: string[] = [];
+      for (const raw of pasted) {
+        const label = parseLabel(raw);
+        if ("bad" in label) misread.push(label.bad);
+        else if (!pastedIds.includes(label.id)) pastedIds.push(label.id);
+      }
+      const rejectedIds: string[] = [];
+      for (const raw of rejected) {
+        // A plain id is fine here. A label must still pass its check digits.
+        const label = parseLabel(raw);
+        const id = "id" in label ? label.id : parseId(raw);
+        if (!id) misread.push(String(raw));
+        else if (!rejectedIds.includes(id)) rejectedIds.push(id);
+      }
+      if (misread.length) {
+        return errorResult(
+          `Nothing was recorded. ${misread.map((m) => `"${m}"`).join(", ")} ${misread.length === 1 ? "is not a label with correct check digits" : "are not labels with correct check digits"}. ` +
+            'Read the strip at the bottom of that image again, digit by digit, and give the label as it is printed, such as "1850854004-65".',
+        );
+      }
+
+      // The thumbnail of a reference: from the history or a picker session, else from Cosmos.
+      const known = knownTiles();
+      const inHistory = new Map<string, HistoryItem>();
+      for (const entry of await ctx.picks.history(ctx.username)) {
+        for (const item of [...entry.picked, ...entry.passed]) if (!inHistory.has(item.id)) inHistory.set(item.id, item);
+      }
+      // "absent": Cosmos says that the id does not exist. "failed": Cosmos could not be asked.
+      const itemFor = async (id: string): Promise<HistoryItem | "absent" | "failed"> => {
+        const thumb = inHistory.get(id)?.thumb ?? known.get(id)?.thumb;
+        if (thumb) return { id, thumb };
+        const notFound = (error: unknown) => error instanceof CosmosError && error.code === "not_found";
+        let reference: Reference;
+        try {
+          reference = await getElement(id);
+        } catch (error) {
+          if (!notFound(error)) return "failed";
+          // A private element is not found as public data. Read it as the account.
+          const token = ctx.token();
+          if (!token) return "absent";
+          try {
+            reference = await getElementWithToken(id, token);
+          } catch (inner) {
+            return notFound(inner) ? "absent" : "failed";
+          }
+        }
+        const tile = toTile(reference, 0);
+        return tile ? { id, thumb: tile.thumb } : "absent";
+      };
+      const all = [...new Set([...pastedIds, ...rejectedIds])];
+      const looked = await mapLimit(all, RESOLVE_CONCURRENCY, itemFor);
+      if (looked.includes("failed")) {
+        return errorResult("Nothing was recorded: Cosmos did not answer for some of the references. The labels are fine. Call note_references again with the same values in a moment.");
+      }
+      const items = new Map<string, HistoryItem | undefined>();
+      looked.forEach((item, index) => items.set(all[index]!, typeof item === "string" ? undefined : item));
+      const missing = all.filter((id) => !items.get(id));
+      const found = (ids: string[]) => ids.map((id) => items.get(id)).filter((item): item is HistoryItem => item !== undefined);
+      const picks = found(pastedIds.filter((id) => !rejectedIds.includes(id)));
+      const passes = found(rejectedIds);
+      if (picks.length === 0 && passes.length === 0) {
+        return errorResult(`Nothing was recorded: Cosmos has no reference with the id ${missing.join(", ")}. Read the strip again.`);
+      }
+      try {
+        await ctx.picks.noteReferences(ctx.username, task, picks, passes);
+      } catch (error) {
+        ctx.log({ level: "error", event: "history_write_failed", error: (error as Error).message });
+        return errorResult("The server could not store this. Try again later.");
+      }
+      ctx.log({ event: "references_noted", pasted: picks.length, rejected: passes.length });
+
+      const name = task.trim();
+      const list = (noted: HistoryItem[]) => noted.map((item) => `[${item.id}]`).join(", ");
+      const lines: string[] = [];
+      if (picks.length) lines.push(`Recorded ${picks.length} pasted ${picks.length === 1 ? "reference" : "references"} as Henrik's picks for "${name}": ${list(picks)}.`);
+      if (passes.length) lines.push(`Marked ${passes.length} ${passes.length === 1 ? "reference" : "references"} as passed for "${name}": ${list(passes)}. Do not build from ${passes.length === 1 ? "it" : "them"}.`);
+      if (missing.length) lines.push(`Left out (Cosmos has no reference with this id): ${missing.join(", ")}.`);
+      if (picks.length) {
+        lines.push(
+          "",
+          "These are the picks for this task, so do not open a picker. The strip at the bottom of a pasted image is a label, not part of the design: " +
+            "do not copy it. Call get_reference with an id for the original image without the strip.",
+          "",
+          "Next steps:",
+          `1. Plan. ${PLAN_TEXT}`,
+          `2. Build each variant. ${BUILD_TEXT}`,
+          `3. Show. ${SHOW_TEXT}`,
+          "",
+          "When Henrik says later that he does not want a reference, or did not like what came of it, call note_references again with it in rejected.",
+        );
+      }
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        structuredContent: { task: name, picked: picks.map((item) => item.id), passed: passes.map((item) => item.id), missing },
+      };
     },
   );
 

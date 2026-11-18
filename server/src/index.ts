@@ -55,7 +55,7 @@ MCP endpoint (Streamable HTTP, stateless, no login):
 Vault of a linked account (needs the device key from the browser extension):
   POST /mcp/<username>?key=<deviceKey>
   Tools: list_collections, list_references, search_references, get_reference, search_cosmos, save_reference,
-  contact_sheet, start_picks, wait_for_picks, show_variants, clear_pick_history.
+  contact_sheet, start_picks, wait_for_picks, show_variants, note_references, clear_pick_history.
 
 Add it to Claude Code:
   claude mcp add --transport http cosmos https://<this-host>/mcp/<username>/<slug>

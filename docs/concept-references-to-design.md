@@ -17,6 +17,8 @@ The UI stays small: one key, one picker page, one review page.
 5. **Review.** One canvas page shows each variant beside its picks. Henrik picks one and continues by prompt: keep it, mix two, or make it more unique.
 6. **Memory.** The server keeps what he picked and what he passed, per task, as images. For the next task, the agent uses this history to put likely picks first in the picker.
 
+**Shortcut: paste.** When Henrik already knows what he wants, he pastes copied references into the chat. Each copied image has a thin strip with its id. The agent reads the ids and tells the server, the pasted references become the picks of the task, and the flow continues at step 3.
+
 ## Decisions
 
 | Topic | Decision | Reason |
@@ -32,6 +34,8 @@ The UI stays small: one key, one picker page, one review page.
 | Variant view | A plain canvas page with pan and zoom. Not Toolcraft, not Blueline. | The Toolcraft starter is 1,900 files and 324 MB of dependencies, with a 251-line agent contract. It is made for generative design tools. A plain page gives the same pan and zoom. |
 | Where the flow lives | In the MCP server: the server instructions and the tool results tell the agent the next step. No skill. | Every agent with the setup prompt gets the flow, on every machine, with no install. There is one place to change. |
 | Report back | A page never asks Henrik to tell the agent that he is done. | The agent reads the result from the server. |
+| Id strip | Every image copied from Cosmos gets a thin dark strip at the bottom with `cosmos <id>-<check digits>`. No switch. Added on 2026-11-18. | A paste gave the agent pixels only. With the id, a paste feeds the pick history, and the agent can get the original and show it on the canvas. In a test, two models read every id correctly (12 readings, 9 images). |
+| Rejected references | When Henrik rejects a reference in words, the agent marks it as passed in the history. It stays in the vault. | Henrik chose this. A removal from the vault loses the reference. |
 
 ## What each part must do
 
@@ -99,6 +103,8 @@ The close match with the comparison loop was best in all 3 tasks. References as 
 - The vision sort holds to about 150 references in the vault. Above that, the server needs a first filter.
 - Pick history is taste data. The plan must say how long it is kept and how Henrik clears it.
 - The tests were small. If the flow feels wrong in use, run Test B again with more tasks before a larger change.
+- The id strip is tested with the Read tool of Claude Code only. A paste into another app can shrink the image more. The check digits make a wrong reading fail on the server and not record a wrong reference.
+- A paste gives picks only. A pass comes only when Henrik rejects a reference in words. Test A used picks and passes together.
 
 ## Dropped
 

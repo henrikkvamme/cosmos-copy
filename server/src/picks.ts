@@ -24,6 +24,9 @@ const MAX_BOARDS_PER_USER = 30;
 const MAX_HISTORY_TASKS = 100;
 const HISTORY_TTL_MS = 365 * 24 * 60 * 60_000;
 const MAX_PASSED_PER_TASK = 300;
+const MAX_PICKED_PER_TASK = 100;
+/** A note about a task changes the newest entry of that task when it is younger than this. */
+const NOTE_MERGE_MS = 7 * 24 * 60 * 60_000;
 
 type Log = (fields: Record<string, unknown>) => void;
 
@@ -342,6 +345,36 @@ export class PickStore {
     file.entries.unshift({ ...entry, passed: entry.passed.slice(0, MAX_PASSED_PER_TASK) });
     if (file.entries.length > MAX_HISTORY_TASKS) file.entries.length = MAX_HISTORY_TASKS;
     await this.saveHistory(username);
+  }
+
+  /**
+   * Records what an agent reports outside a pick session: references Henrik pasted (picks) and
+   * references he rejects (passed). It changes the newest entry of the task (by name, case does
+   * not matter) when that entry is younger than a week, else it adds an entry. A rejected
+   * reference moves from picked to passed.
+   */
+  async noteReferences(username: string, task: string, pasted: HistoryItem[], rejected: HistoryItem[]): Promise<{ picked: number; passed: number }> {
+    const file = await this.historyOf(username);
+    const wanted = task.trim().toLowerCase();
+    const cutoff = Date.now() - NOTE_MERGE_MS;
+    let entry = file.entries.find((e) => e.task.trim().toLowerCase() === wanted && Date.parse(e.at) >= cutoff);
+    if (!entry) {
+      entry = { task: task.trim(), at: new Date().toISOString(), picked: [], passed: [] };
+      file.entries.unshift(entry);
+      if (file.entries.length > MAX_HISTORY_TASKS) file.entries.length = MAX_HISTORY_TASKS;
+    }
+    const rejectedIds = new Set(rejected.map((item) => item.id));
+    for (const item of pasted) {
+      if (rejectedIds.has(item.id)) continue;
+      if (!entry.picked.some((p) => p.id === item.id)) entry.picked.push(item);
+      entry.passed = entry.passed.filter((p) => p.id !== item.id);
+    }
+    // At the limit the oldest picks go, so a new paste is always stored.
+    entry.picked = entry.picked.filter((p) => !rejectedIds.has(p.id)).slice(-MAX_PICKED_PER_TASK);
+    // Rejected references go first, so the history sheet shows them before the other passes.
+    entry.passed = [...rejected, ...entry.passed.filter((p) => !rejectedIds.has(p.id))].slice(0, MAX_PASSED_PER_TASK);
+    await this.saveHistory(username);
+    return { picked: entry.picked.length, passed: entry.passed.length };
   }
 
   /** Deletes the entries of one task (by name, case does not matter), or all. Returns the number deleted. */

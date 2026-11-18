@@ -298,6 +298,7 @@ try {
           "get_reference",
           "list_collections",
           "list_references",
+          "note_references",
           "save_reference",
           "search_cosmos",
           "search_references",
@@ -591,6 +592,41 @@ try {
     check("clear_pick_history: deletes the rest", !clearedAll.isError && clearedAll.structuredContent?.removed === 1, textOf(clearedAll));
     const afterClear = await call(vault, "contact_sheet", { source: "history" });
     check("contact_sheet history: empty after clearing", textOf(afterClear).includes("No pick history yet"), textOf(afterClear));
+
+    // Pasted references with an id strip, and a rejection.
+    check("design: the server instructions name the id strip", instructions.includes("note_references") && instructions.includes("check digits"), instructions);
+    const label = (id) => `${id}-${String(98n - ((BigInt(id) * 100n) % 97n)).padStart(2, "0")}`;
+    check("id strip: the check digits match the helper", label("1850854004") === "1850854004-65" && label("9999999999999999999") === "9999999999999999999-50");
+    const wrongDigit = label(REAL_ELEMENT).replace(/^\d/, (d) => String((Number(d) + 1) % 10 || 1));
+    const misread = await call(vault, "note_references", { task: "Paste task", pasted: [label(first), wrongDigit] });
+    check("note_references: a misread label records nothing", misread.isError === true && textOf(misread).includes("Nothing was recorded") && textOf(misread).includes(wrongDigit), textOf(misread));
+    const noCheck = await call(vault, "note_references", { task: "Paste task", pasted: [REAL_ELEMENT] });
+    check("note_references: a pasted id needs its check digits", noCheck.isError === true, textOf(noCheck));
+    const stillEmpty = await call(vault, "contact_sheet", { source: "history" });
+    check("note_references: the history is still empty", textOf(stillEmpty).includes("No pick history yet"), textOf(stillEmpty));
+
+    const noted = await call(vault, "note_references", { task: "Paste task", pasted: [label(first), `cosmos ${label(REAL_ELEMENT)}`] });
+    check(
+      "note_references: pasted references are the picks, with the next steps",
+      !noted.isError && JSON.stringify(noted.structuredContent?.picked) === JSON.stringify([first, REAL_ELEMENT]) && textOf(noted).includes("Next steps") && textOf(noted).includes("do not open a picker"),
+      textOf(noted),
+    );
+    const rejectedOne = await call(vault, "note_references", { task: "paste task", rejected: [first] });
+    check("note_references: a rejected reference is marked as passed", !rejectedOne.isError && JSON.stringify(rejectedOne.structuredContent?.passed) === JSON.stringify([first]), textOf(rejectedOne));
+    const notedFile = JSON.parse(await readFile(join(dataDir, "history", "henrikkvamme.json"), "utf8"));
+    check(
+      "note_references: one entry for the task, the rejected reference moved from picked to passed",
+      notedFile.entries.length === 1 &&
+        JSON.stringify(notedFile.entries[0].picked.map((i) => i.id)) === JSON.stringify([REAL_ELEMENT]) &&
+        JSON.stringify(notedFile.entries[0].passed.map((i) => i.id)) === JSON.stringify([first]) &&
+        notedFile.entries[0].picked[0].thumb.startsWith("https://cdn.cosmos.so/"),
+      notedFile.entries,
+    );
+    const notedSheet = await call(vault, "contact_sheet", { source: "history" });
+    check("note_references: the history sheet shows the task", !notedSheet.isError && textOf(notedSheet).includes('Task "Paste task"') && images(notedSheet).length === 1, textOf(notedSheet).slice(0, 300));
+    const notAnId = await call(vault, "note_references", { task: "Other task", rejected: ["not an id"] });
+    check("note_references: a value that is not an id records nothing", notAnId.isError === true, textOf(notAnId));
+    await call(vault, "clear_pick_history", {});
   }
 
   // A token Cosmos no longer accepts.
@@ -666,6 +702,19 @@ try {
     await Promise.all([store.addHistory("racer", entry("task A")), store.addHistory("racer", entry("task B"))]);
     const onDisk = JSON.parse(await readFile(join(dir, "history", "racer.json"), "utf8"));
     check("history: two Done at the same time keep both tasks", onDisk.entries.length === 2, onDisk.entries.map((e) => e.task));
+    // A paste at the limit of picks per task: the new one is stored, the oldest goes.
+    const item = (n) => ({ id: String(n), thumb: "https://cdn.cosmos.so/x" });
+    for (let n = 0; n < 100; n += 20) await store.noteReferences("racer", "full task", Array.from({ length: 20 }, (_, k) => item(1000 + n + k)), []);
+    await store.noteReferences("racer", "Full Task", [item(2000)], [item(1001)]);
+    const full = (await store.history("racer")).find((e) => e.task === "full task");
+    check(
+      "note: at 100 picks a new paste is stored, and a rejected pick moves to passed",
+      full?.picked.length === 100 && full.picked.at(-1).id === "2000" && !full.picked.some((p) => p.id === "1001") && full.passed[0]?.id === "1001",
+      full && { picked: full.picked.length, last: full.picked.at(-1), passed: full.passed },
+    );
+    await store.noteReferences("racer", "full task", [item(2001), item(2002)], []);
+    const over = (await store.history("racer")).find((e) => e.task === "full task");
+    check("note: over the limit the oldest picks go", over?.picked.length === 100 && over.picked[0].id === "1003" && over.picked.at(-1).id === "2002", over && { first: over.picked[0], n: over.picked.length });
     await rm(dir, { recursive: true, force: true });
   }
 

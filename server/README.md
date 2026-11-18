@@ -66,6 +66,12 @@ Vault, design flow (the server instructions give the agent the order):
   steps. The agent never asks Henrik to say that he is done.
 - `show_variants { task, variants: [{ name, takes: [{ id, what? }] }] }`: 1 to 6 variants. Returns
   the canvas link and one upload command per variant.
+- `note_references { task, pasted?, rejected? }`: for references Henrik pasted into the chat. `pasted`
+  holds the labels on the strips of the copied images, such as `1850854004-65` (id and two check
+  digits, mod 97). They become the picks of the task in the pick history, and the result gives the
+  same next steps as `wait_for_picks`. `rejected` holds labels or ids: they move to passed. A label
+  with wrong check digits records nothing, and the agent reads the strip again. A call changes the
+  newest history entry of the same task when it is younger than 7 days, else it adds an entry.
 - `clear_pick_history { task? }`: deletes the pick history of one task, or all of it.
 
 When the token is missing, expired or refused, a vault tool that needs it gives the error
