@@ -5,8 +5,10 @@
 // persisted-query hashes of the Cosmos web bundle.
 // Fallback for one element: the JSON-LD block of the public page https://www.cosmos.so/e/<id>.
 
-const GRAPHQL_URL = "https://api.cosmos.so/graphql";
+const GRAPHQL_URL = process.env.COSMOS_GRAPHQL_URL || "https://api.cosmos.so/graphql";
 const ALLOWED_HOSTS = new Set(["api.cosmos.so", "www.cosmos.so", "cdn.cosmos.so"]);
+/** Tests point COSMOS_GRAPHQL_URL at a local fake Cosmos. That one origin is also allowed. */
+const GRAPHQL_OVERRIDE_ORIGIN = process.env.COSMOS_GRAPHQL_URL ? new URL(process.env.COSMOS_GRAPHQL_URL).origin : undefined;
 const USER_AGENT = "cosmos-mcp/0.1 (read-only MCP server for public collections)";
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
@@ -65,7 +67,11 @@ export interface Collection {
   truncated: boolean;
 }
 
-export type CosmosErrorCode = "not_found" | "upstream";
+/** "auth": Cosmos refused the bearer token that was sent (expired or revoked). */
+export type CosmosErrorCode = "not_found" | "upstream" | "auth";
+
+/** A JWT: three base64url parts. Anything else is refused before it reaches a header. */
+export const JWT_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
 export class CosmosError extends Error {
   constructor(
@@ -80,7 +86,9 @@ export class CosmosError extends Error {
 /** The only network exit of this server. It refuses every host that is not a Cosmos host. */
 export async function cosmosFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const parsed = new URL(url);
-  if (parsed.protocol !== "https:" || !ALLOWED_HOSTS.has(parsed.hostname)) {
+  const allowed =
+    (parsed.protocol === "https:" && ALLOWED_HOSTS.has(parsed.hostname)) || parsed.origin === GRAPHQL_OVERRIDE_ORIGIN;
+  if (!allowed) {
     throw new CosmosError("upstream", `Refused to fetch ${parsed.protocol}//${parsed.hostname}: not a Cosmos host.`);
   }
   try {
@@ -91,7 +99,8 @@ export async function cosmosFetch(url: string, init: RequestInit = {}): Promise<
       headers: { "user-agent": USER_AGENT, ...init.headers },
     });
   } catch (error) {
-    const reason = error instanceof Error ? (error.name === "TimeoutError" ? "timeout" : error.message) : String(error);
+    // Only fixed reasons: a raw fetch error can quote request headers, including the bearer token.
+    const reason = error instanceof Error && error.name === "TimeoutError" ? "timeout" : error instanceof TypeError ? "network or request error" : "request error";
     throw new CosmosError("upstream", `Request to ${parsed.hostname} failed: ${reason}`);
   }
 }
@@ -99,7 +108,7 @@ export async function cosmosFetch(url: string, init: RequestInit = {}): Promise<
 // ---------------------------------------------------------------------------------------------
 // GraphQL
 
-const ELEMENT_FIELDS = `
+export const ELEMENT_FIELDS = `
 fragment Media on Media {
   __typename
   url
@@ -140,12 +149,17 @@ interface GraphQLError {
   extensions?: { code?: string; violations?: { message?: string }[] | null };
 }
 
-async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const response = await cosmosFetch(GRAPHQL_URL, {
-    method: "POST",
-    headers: { "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ query, variables }),
-  });
+/**
+ * Sends one GraphQL operation. With a token, Cosmos answers as that user (header
+ * "Authorization: Bearer <token>"). Never put the token in an error message or a log line.
+ */
+export async function graphql<T>(query: string, variables: Record<string, unknown>, token?: string): Promise<T> {
+  const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
+  if (token) {
+    if (!JWT_PATTERN.test(token)) throw new CosmosError("auth", "The stored Cosmos token is malformed.");
+    headers.authorization = `Bearer ${token}`;
+  }
+  const response = await cosmosFetch(GRAPHQL_URL, { method: "POST", headers, body: JSON.stringify({ query, variables }) });
   let payload: { data?: T | null; errors?: GraphQLError[] };
   try {
     payload = (await response.json()) as typeof payload;
@@ -158,6 +172,8 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
     const message = [first.message, violations].filter(Boolean).join(" ");
     // Cosmos answers AUTHENTICATION for a private item, and also for an element id that does not exist.
     const code = first.extensions?.code ?? "";
+    // With a token, AUTHENTICATION means that Cosmos does not accept the token.
+    if (token && code === "AUTHENTICATION") throw new CosmosError("auth", message);
     if (["NOT_FOUND", "AUTHENTICATION", "AUTHORIZATION", "FORBIDDEN"].includes(code)) {
       throw new CosmosError("not_found", message);
     }
@@ -180,7 +196,7 @@ interface RawMedia {
   duration?: number | null;
 }
 
-interface RawElement {
+export interface RawElement {
   __typename?: string;
   id: number | string;
   createdAt?: string | null;
@@ -205,7 +221,7 @@ export function cleanText(value: string | null | undefined): string | undefined 
   return text || undefined;
 }
 
-function toReference(raw: RawElement, savedAt?: string | null): Reference {
+export function toReference(raw: RawElement, savedAt?: string | null): Reference {
   const id = String(raw.id);
   const media = raw.media ?? undefined;
   const reference: Reference = {
@@ -452,4 +468,79 @@ export async function getElement(id: string): Promise<Reference> {
   );
   remember(elements, id, { at: 0, inflight }, MAX_CACHED_ELEMENTS);
   return inflight;
+}
+
+/** Reads one element as the token's user, so a private element works too. Never cached. */
+export async function getElementWithToken(id: string, token: string): Promise<Reference> {
+  const data = await graphql<{ elementView: { element: RawElement | null } | null }>(
+    ELEMENT_QUERY,
+    { elementId: Number(id) },
+    token,
+  );
+  if (!data.elementView?.element) throw new CosmosError("not_found", `Element not found: ${id}`);
+  return toReference(data.elementView.element);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Search
+
+const SEARCH_QUERY = `
+query CosmosMcpSearchElements($searchTerm: String!, $userId: UserId, $contentType: ElementContentTypeFilter, $pageSize: Int, $pageCursor: String) {
+  searchElements(searchTerm: $searchTerm, filters: { userId: $userId, contentType: $contentType }, meta: { pageSize: $pageSize, pageCursor: $pageCursor }) {
+    results { element { ...Element } }
+    meta { nextPageCursor count }
+  }
+}${ELEMENT_FIELDS}`;
+
+export interface SearchPage {
+  references: Reference[];
+  nextCursor?: string;
+  /** The number of matches Cosmos reports, when it reports one. */
+  count?: number;
+}
+
+/**
+ * Ranks elements by meaning. With userId it searches the elements that user saved, else all of
+ * Cosmos. An empty search term returns no items at Cosmos, so callers must not send one.
+ */
+export async function searchElements(options: {
+  searchTerm: string;
+  userId?: string;
+  kind?: "image" | "video";
+  pageSize: number;
+  cursor?: string;
+  token?: string;
+}): Promise<SearchPage> {
+  const data = await graphql<{
+    searchElements: {
+      results: { element: RawElement | null }[];
+      meta: { nextPageCursor?: string | null; count?: number | null };
+    } | null;
+  }>(
+    SEARCH_QUERY,
+    {
+      searchTerm: options.searchTerm,
+      userId: options.userId ? Number(options.userId) : null,
+      contentType: options.kind === "image" ? "IMAGE" : options.kind === "video" ? "VIDEO" : null,
+      pageSize: options.pageSize,
+      pageCursor: options.cursor ?? null,
+    },
+    options.token,
+  );
+  const result = data.searchElements;
+  const references: Reference[] = [];
+  const seen = new Set<string>();
+  for (const item of result?.results ?? []) {
+    if (!item.element) continue;
+    const reference = toReference(item.element);
+    if (seen.has(reference.id) || (options.kind && reference.kind !== options.kind)) continue;
+    seen.add(reference.id);
+    references.push(reference);
+  }
+  const next = result?.meta.nextPageCursor ?? undefined;
+  return {
+    references,
+    nextCursor: next && next !== options.cursor && (result?.results.length ?? 0) > 0 ? next : undefined,
+    count: result?.meta.count ?? undefined,
+  };
 }

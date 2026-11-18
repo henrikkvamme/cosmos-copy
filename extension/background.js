@@ -1,7 +1,9 @@
 import { cosmos } from "./cosmos.js";
-import { DEFAULT_SETTINGS } from "./defaults.js";
+import { DEFAULT_SETTINGS, SERVER } from "./defaults.js";
+import { device, reconnect, relay, startLinking, unlink } from "./link.js";
 
 const HOST = "com.henrikkvamme.cosmos_copy";
+startLinking();
 
 async function settings() {
   const { settings: stored } = await chrome.storage.local.get("settings");
@@ -159,6 +161,22 @@ const popupHandlers = {
   async "popup:collections"() {
     const [collections, current] = await Promise.all([cosmos.collections(), target()]);
     return { collections, current };
+  },
+  // The agent setup: the vault URL with this device's key, and whether the link works.
+  async "popup:agents"() {
+    const { key } = await device();
+    let { link } = await chrome.storage.local.get("link");
+    if (!link?.ok) link = (await relay("popup"), (await chrome.storage.local.get("link")).link);
+    const { username } = await cosmos.me();
+    return { url: `${SERVER}/mcp/${username}?key=${key}`, link };
+  },
+  async "popup:unlink"() {
+    await unlink();
+    return {};
+  },
+  async "popup:reconnect"() {
+    await reconnect();
+    return {};
   },
   async "popup:set-collection"({ collection, name }) {
     const picked = collection ?? (await cosmos.collection(name));

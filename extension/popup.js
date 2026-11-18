@@ -1,6 +1,5 @@
 import { DEFAULT_SETTINGS } from "./defaults.js";
 
-const MCP_BASE = "https://cosmos-mcp.henrikkvamme.no/mcp";
 const NEW = "__new__";
 const $ = (id) => document.getElementById(id);
 const ask = async (message) => {
@@ -95,33 +94,65 @@ async function loadTray() {
 
 // ---- Settings ----
 
-function setupPrompt(url, collectionUrl) {
-  return `Add my Cosmos design references as an MCP server, so you can search and view them.
+function setupPrompt(url) {
+  return `Add my Cosmos design references as an MCP server, so you can search, view and save them.
 
 - Server: ${url}
-- Transport: streamable HTTP, no auth, read-only.
-- It serves my public Cosmos collection ${collectionUrl}: images and videos I saved as references.
+- Transport: streamable HTTP. The key in the URL is the login, so keep the URL private.
+- It reads all my Cosmos (cosmos.so) collections: images and videos I saved as design references. It can also search all of Cosmos and save references to my collections.
 
 Steps:
-1. Add it for your harness at user scope, named "cosmos". Claude Code: claude mcp add --transport http --scope user cosmos ${url}
-   Codex: codex mcp add cosmos --url ${url}
+1. Add it for your harness at user scope, named "cosmos". Claude Code: claude mcp add --transport http --scope user cosmos "${url}"
+   Codex: codex mcp add cosmos --url "${url}"
    Other clients: add a streamable HTTP MCP server with that URL.
+   If a server named "cosmos" exists, replace it.
 2. Check that it connects (for example claude mcp list or codex mcp list).
 3. Tell me if I must restart the session to load it.
 
-Use it when I mention a Cosmos reference or ask for visual inspiration: search_references to find, get_reference to see one.`;
+Use it when I mention a Cosmos reference or ask for visual inspiration: search_references to find my references, search_cosmos to find new ones, get_reference to see one, save_reference to save one I pick.`;
 }
 
 function showCurrent(current) {
-  const collectionUrl = `https://www.cosmos.so/${current.username}/${current.slug}`;
-  $("open").href = collectionUrl;
+  $("open").href = `https://www.cosmos.so/${current.username}/${current.slug}`;
   $("open").hidden = false;
-  const url = `${MCP_BASE}/${current.username}/${current.slug}`;
-  $("copy-prompt").onclick = async () => {
-    await navigator.clipboard.writeText(setupPrompt(url, collectionUrl));
-    status("Copied. Paste it into your agent.");
-  };
-  $("copy-prompt").disabled = false;
+}
+
+async function loadAgents() {
+  try {
+    const { url, link } = await ask({ type: "popup:agents" });
+    const disconnected = link?.reason === "disconnected";
+    const pending = link?.reason === "unlink-pending";
+    $("renew").hidden = !(link?.reason === "signed-out");
+    // A disconnect the server has not confirmed must finish before anything else.
+    $("unlink").hidden = !(link?.ok || pending);
+    $("unlink").textContent = pending ? "Retry disconnect" : "Disconnect agents on this browser";
+    $("copy-prompt").hidden = pending;
+    if (pending) status("Disconnect is not finished. Old setup URLs may still work.", true);
+    $("copy-prompt").textContent = disconnected ? "Connect agents again" : "Copy setup prompt";
+    $("copy-prompt").onclick = async () => {
+      if (disconnected) {
+        await ask({ type: "popup:reconnect" });
+        status("Connected with a new key. Copy the setup prompt for your agents.");
+        return loadAgents();
+      }
+      await navigator.clipboard.writeText(setupPrompt(url));
+      status(link?.ok ? "Copied. Paste it into your agent." : "Copied. Agents can connect when the link works again.");
+    };
+    $("copy-prompt").disabled = false;
+    if (link?.reason === "error") status(`Could not reach the agent server: ${link.error}`, true);
+    $("unlink").onclick = async () => {
+      if (!pending && !confirm("Agents set up from this browser lose access. Disconnect?")) return;
+      try {
+        await ask({ type: "popup:unlink" });
+        status("Disconnected. Agents set up from this browser have no access now.");
+      } catch (err) {
+        status(err.message, true);
+      }
+      loadAgents();
+    };
+  } catch (err) {
+    status(`Could not set up agents: ${err.message}`, true);
+  }
 }
 
 function fillCollections(collections, current) {
@@ -170,6 +201,7 @@ async function loadSettings() {
   const prefs = await settings();
   $("like").checked = prefs.likeOnCopy;
   $("like").onchange = () => saveSettings({ likeOnCopy: $("like").checked });
+  loadAgents();
   try {
     const { collections, current } = await ask({ type: "popup:collections" });
     fillCollections(collections, current);

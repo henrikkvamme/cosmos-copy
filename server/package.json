@@ -2,13 +2,16 @@
   "name": "cosmos-mcp",
   "version": "0.1.0",
   "private": true,
-  "description": "Stateless remote MCP server for the elements of a public Cosmos (cosmos.so) collection.",
+  "description": "MCP server for Cosmos (cosmos.so): public collections without login, and the vault of a linked account.",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "smoke": "npm run build && node scripts/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

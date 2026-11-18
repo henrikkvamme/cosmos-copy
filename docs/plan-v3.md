@@ -34,7 +34,7 @@ Decided with Henrik (2026-11-18):
    - The server calls `me` on Cosmos with the token. On success it stores, per username, one account token `{token, exp}` and a list of devices `{keyHash, name, linkedAt, lastSeen}` in a JSON file on a Dokploy volume (mode 600, written atomically).
    - Devices are separate: a new device adds a key and never replaces another. A relay from a known device keeps its key.
    - A token update is accepted only when its `exp` is later than the stored one, so an old device cannot replace a newer token.
-   - `POST /unlink` with `{deviceKey}` removes that device. With no devices left, the token is deleted. An expired token is deleted on read.
+   - `POST /unlink` with `{deviceKey}` removes that device. The extension then stays disconnected: no relays or retries until Henrik clicks "Connect agents again", which makes a new key. With no devices left, the token is deleted. An expired token is deleted on read.
    - Rate limit by IP. The token and keys never go to logs.
 2. Routes:
    - `POST /mcp/:username?key=…` is the vault. A valid device key is required for every request, because its reads use Henrik's token (private collections included). A missing or wrong key gives 401. Results are never shared between users or keys (no cache keyed only by path).

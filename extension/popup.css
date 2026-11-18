@@ -99,5 +99,9 @@ h2 { margin: 0; font-size: 14px; font-weight: 500; }
 .pill.dark { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .pill:hover:not(:disabled) { opacity: .88; }
 .pill:disabled { opacity: .45; cursor: default; }
+.renew { color: oklch(0.55 0.19 27); }
+.renew a { color: inherit; }
+.text-button { align-self: center; padding: 2px 6px; border: 0; background: transparent; color: var(--ink-2); font-size: 13px; }
+.text-button:hover { color: var(--ink); text-decoration: underline; }
 .status { margin: 0; min-height: 18px; font-size: 13px; color: var(--ink-2); }
 .status.error { color: oklch(0.55 0.19 27); }

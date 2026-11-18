@@ -6,8 +6,8 @@ import { z } from "zod";
 import { CosmosError, getCollection, getElement, type Collection, type Reference } from "./cosmos.js";
 import { loadVisual } from "./image.js";
 
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 50;
+export const DEFAULT_LIMIT = 20;
+export const MAX_LIMIT = 50;
 
 export function buildInstructions(username: string, slug: string, collection?: Collection): string {
   const url = `https://www.cosmos.so/${username}/${slug}`;
@@ -22,7 +22,7 @@ export function buildInstructions(username: string, slug: string, collection?: C
   ].join(" ");
 }
 
-function compactText(reference: Reference): string {
+export function compactText(reference: Reference): string {
   const head = [reference.title, reference.description].filter(Boolean).join(" - ") || "(no description)";
   const lines = [`[${reference.id}] ${reference.animated ? "video (animated)" : reference.kind} - ${head}`];
   const author = [reference.author, reference.authorUsername && `@${reference.authorUsername}`].filter(Boolean).join(" ");
@@ -33,7 +33,7 @@ function compactText(reference: Reference): string {
   return lines.join("\n");
 }
 
-function fullText(reference: Reference): string {
+export function fullText(reference: Reference): string {
   const rows: [string, string | number | undefined][] = [
     ["id", reference.id],
     ["kind", reference.animated ? "video (short animated loop)" : reference.kind],
@@ -57,7 +57,7 @@ function fullText(reference: Reference): string {
     .join("\n");
 }
 
-function errorResult(message: string): CallToolResult {
+export function errorResult(message: string): CallToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
@@ -77,11 +77,11 @@ function matches(reference: Reference, tokens: string[]): boolean {
   return tokens.every((token) => haystack.includes(token));
 }
 
-function encodeCursor(offset: number): string {
+export function encodeCursor(offset: number): string {
   return Buffer.from(JSON.stringify({ o: offset })).toString("base64url");
 }
 
-function decodeCursor(cursor: string): number | undefined {
+export function decodeCursor(cursor: string): number | undefined {
   try {
     const offset = (JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { o?: unknown }).o;
     return typeof offset === "number" && Number.isInteger(offset) && offset >= 0 ? offset : undefined;
@@ -91,10 +91,56 @@ function decodeCursor(cursor: string): number | undefined {
 }
 
 /** Accepts 1754412159, "1754412159", "cosmos-1754412159" and https://www.cosmos.so/e/1754412159. */
-function parseId(value: string | number): string | undefined {
+export function parseId(value: string | number): string | undefined {
   const text = String(value).trim();
   const match = /^(?:cosmos-)?(\d{1,19})$/.exec(text) ?? /cosmos\.so\/e\/(\d{1,19})(?:[/?#]|$)/.exec(text);
   return match?.[1];
+}
+
+export const limitSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(MAX_LIMIT)
+  .optional()
+  .describe(`Maximum number of results. Default ${DEFAULT_LIMIT}, maximum ${MAX_LIMIT}.`);
+
+export const idSchema = z
+  .union([z.string().max(200), z.number().int().positive()])
+  .describe("The reference id, such as 1754412159. A cosmos.so/e/<id> URL also works.");
+
+export interface VisualInfo {
+  width: number;
+  height: number;
+  mimeType: string;
+  sourceUrl: string;
+}
+
+/** The get_reference result: the text, then the image when it loads. */
+export async function referenceContent(
+  reference: Reference,
+  text: string,
+): Promise<{ content: CallToolResult["content"]; visual: VisualInfo | null }> {
+  if (reference.kind === "video") {
+    text += `\n\nThis reference is a video. The image below is its thumbnail (one frame). The video is the MP4 at ${reference.mediaUrl}.`;
+  }
+  const content: CallToolResult["content"] = [];
+  let visual: VisualInfo | null = null;
+  if (reference.thumbnailUrl) {
+    try {
+      const loaded = await loadVisual(reference);
+      visual = { width: loaded.width, height: loaded.height, mimeType: loaded.mimeType, sourceUrl: loaded.sourceUrl };
+      text += `\n\nThe image below is ${loaded.width} x ${loaded.height} px (JPEG, downscaled when the original is larger).`;
+      content.push({ type: "image", data: loaded.data, mimeType: loaded.mimeType });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      text += `\n\nNote: the image could not be loaded (${reason}). Open ${reference.pageUrl} to see it.`;
+    }
+  } else {
+    text += "\n\nNote: this reference has no image.";
+  }
+  content.unshift({ type: "text", text });
+  return { content, visual };
 }
 
 export function buildServer(username: string, slug: string, instructions: string): McpServer {
@@ -116,14 +162,6 @@ export function buildServer(username: string, slug: string, instructions: string
     }
     return run(collection);
   }
-
-  const limitSchema = z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_LIMIT)
-    .optional()
-    .describe(`Maximum number of results. Default ${DEFAULT_LIMIT}, maximum ${MAX_LIMIT}.`);
 
   server.registerTool(
     "search_references",
@@ -216,11 +254,7 @@ export function buildServer(username: string, slug: string, instructions: string
         "can see. Use it after search_references or list_references, before you describe a reference or copy its " +
         "style, and when Henrik gives you a cosmos.so/e/<id> link. For an image you get the image. For a video you " +
         "get its thumbnail, and the text gives the MP4 URL.",
-      inputSchema: {
-        id: z
-          .union([z.string().max(200), z.number().int().positive()])
-          .describe("The reference id, such as 1754412159. A cosmos.so/e/<id> URL also works."),
-      },
+      inputSchema: { id: idSchema },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ id: rawId }) => {
@@ -249,26 +283,7 @@ export function buildServer(username: string, slug: string, instructions: string
 
       let text = fullText(reference);
       if (!inCollection) text += `\n\nNote: this element is not in the collection ${where}.`;
-      if (reference.kind === "video") {
-        text += `\n\nThis reference is a video. The image below is its thumbnail (one frame). The video is the MP4 at ${reference.mediaUrl}.`;
-      }
-
-      const content: CallToolResult["content"] = [];
-      let visual: { width: number; height: number; mimeType: string; sourceUrl: string } | null = null;
-      if (reference.thumbnailUrl) {
-        try {
-          const loaded = await loadVisual(reference);
-          visual = { width: loaded.width, height: loaded.height, mimeType: loaded.mimeType, sourceUrl: loaded.sourceUrl };
-          text += `\n\nThe image below is ${loaded.width} x ${loaded.height} px (JPEG, downscaled when the original is larger).`;
-          content.push({ type: "image", data: loaded.data, mimeType: loaded.mimeType });
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          text += `\n\nNote: the image could not be loaded (${reason}). Open ${reference.pageUrl} to see it.`;
-        }
-      } else {
-        text += "\n\nNote: this reference has no image.";
-      }
-      content.unshift({ type: "text", text });
+      const { content, visual } = await referenceContent(reference, text);
       return { content, structuredContent: { ...reference, inCollection, visual } };
     },
   );

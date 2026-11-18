@@ -163,6 +163,10 @@ func setClipboard(paths: [String], expect changeCount: Int) throws -> Int {
         return item
     }
     let pasteboard = NSPasteboard.general
+    // Check again after the file reads and conversions, right before the clear.
+    guard pasteboard.changeCount == changeCount else {
+        throw HostError(message: "The clipboard changed. Open the popup again.")
+    }
     pasteboard.clearContents()
     if !items.isEmpty {
         guard pasteboard.writeObjects(items) else { throw HostError(message: "Could not write to the clipboard") }
