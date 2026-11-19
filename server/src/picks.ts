@@ -8,7 +8,7 @@
 // The store keeps only its hash. Never log an id.
 
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { writeFileAtomic } from "./store.js";
 
@@ -27,6 +27,9 @@ const MAX_PASSED_PER_TASK = 300;
 const MAX_PICKED_PER_TASK = 100;
 /** A note about a task changes the newest entry of that task when it is younger than this. */
 const NOTE_MERGE_MS = 7 * 24 * 60 * 60_000;
+/** A result image that no entry names is deleted when it is older than this. A new image waits this long for its entry. */
+const ORPHAN_IMAGE_MS = Number(process.env.ORPHAN_IMAGE_MS ?? 10 * 60_000); // The variable is for tests.
+const RESULT_FILE_PATTERN = /^[A-Za-z0-9_-]{43}\.jpg$/;
 
 type Log = (fields: Record<string, unknown>) => void;
 
@@ -85,11 +88,31 @@ export interface HistoryItem {
   thumb: string;
 }
 
+/**
+ * The style record of a task: the design Henrik accepted. It holds its own copy of the
+ * references, so later changes to picked and passed do not change it.
+ */
+export interface HistoryResult {
+  at: string;
+  /** The hash of the canvas (board) it came from. A new record for the same canvas replaces this one. */
+  board: string;
+  /** The name of the accepted variant. */
+  variant: string;
+  took: { id: string; thumb: string; what: string }[];
+  deviations: string;
+  /** The file of the final screenshot in history-images/<username>/. */
+  file: string;
+  image: { w: number; h: number };
+}
+
 export interface HistoryEntry {
   task: string;
   at: string;
   picked: HistoryItem[];
   passed: HistoryItem[];
+  /** The app or repository the design was made for. */
+  project?: string;
+  result?: HistoryResult;
 }
 
 interface PicksFile {
@@ -142,6 +165,8 @@ export class PickStore {
   private readonly writer: Writer;
   private readonly histories = new Map<string, HistoryFile>();
   private readonly historyWriters = new Map<string, Writer>();
+  /** Per user: the result images that the history file on disk names, as of the last write. */
+  private readonly savedImages = new Map<string, Set<string>>();
   private readonly waiters = new Map<string, Set<() => void>>();
 
   constructor(readonly dir: string) {
@@ -272,6 +297,12 @@ export class PickStore {
     return this.liveBoard(hashId(id));
   }
 
+  /** The board of a view id, with its hash (the name of its image folder). */
+  boardWithHash(id: string): { hash: string; board: Board } | undefined {
+    const board = this.board(id);
+    return board ? { hash: hashId(id), board } : undefined;
+  }
+
   /** The board of an upload id, with its hash (the name of its image folder). */
   boardForUpload(uploadId: string): { hash: string; board: Board } | undefined {
     if (!ID_PATTERN.test(uploadId)) return undefined;
@@ -377,6 +408,71 @@ export class PickStore {
     return { picked: entry.picked.length, passed: entry.passed.length };
   }
 
+  // ---- Style records ----
+
+  private resultDir(username: string): string {
+    return join(this.dir, "history-images", username.toLowerCase().replace(/[^a-z0-9_.-]/g, "_"));
+  }
+
+  /** Stores a final screenshot and returns its file name. Call noteResult with it at once. */
+  async writeResultImage(username: string, data: Buffer): Promise<string> {
+    const file = `${newId()}.jpg`;
+    await mkdir(this.resultDir(username), { recursive: true, mode: 0o700 });
+    await writeFileAtomic(join(this.resultDir(username), file), data);
+    return file;
+  }
+
+  async readResultImage(username: string, file: string): Promise<Buffer | undefined> {
+    if (!RESULT_FILE_PATTERN.test(file)) return undefined;
+    return readFile(join(this.resultDir(username), file)).catch(() => undefined);
+  }
+
+  /**
+   * Records the accepted design of a task. The image file must exist already. The entry is, in
+   * this order: the one that holds a record of the same canvas (replaced), the newest entry of
+   * the task without a record and younger than a week, or a new entry. A record of another
+   * canvas is never replaced, so two projects with the same task name keep their own records.
+   */
+  async noteResult(username: string, task: string, project: string, result: HistoryResult): Promise<{ replaced: boolean }> {
+    const file = await this.historyOf(username);
+    const wanted = task.trim().toLowerCase();
+    const cutoff = Date.now() - NOTE_MERGE_MS;
+    let entry = file.entries.find((e) => e.result?.board === result.board);
+    const replaced = entry !== undefined;
+    entry ??= file.entries.find((e) => !e.result && e.task.trim().toLowerCase() === wanted && Date.parse(e.at) >= cutoff);
+    if (!entry) {
+      entry = { task: task.trim(), at: new Date().toISOString(), picked: result.took.map(({ id, thumb }) => ({ id, thumb })), passed: [] };
+      file.entries.unshift(entry);
+      if (file.entries.length > MAX_HISTORY_TASKS) file.entries.length = MAX_HISTORY_TASKS;
+    }
+    entry.project = project;
+    entry.result = result;
+    await this.saveHistory(username);
+    return { replaced };
+  }
+
+  /**
+   * Deletes the result images that no entry names. It runs after each save, when the file on
+   * disk and the entries in memory are the same. This one step covers a cleared task, an expired
+   * entry, an entry over the limit, a replaced record and a write that was interrupted.
+   */
+  private async dropUnusedImages(username: string): Promise<void> {
+    const dir = this.resultDir(username);
+    const names = await readdir(dir).catch(() => [] as string[]);
+    if (names.length === 0) return;
+    const key = username.toLowerCase();
+    // A file stays while the entries in memory or the last file on disk name it. They differ when
+    // a save failed or is still to come, and then the file on disk can still need the old image.
+    const named = (name: string) =>
+      (this.histories.get(key)?.entries ?? []).some((entry) => entry.result?.file === name) || (this.savedImages.get(key)?.has(name) ?? true);
+    for (const name of names) {
+      if (named(name)) continue;
+      const age = await stat(join(dir, name)).then((s) => Date.now() - s.mtimeMs, () => 0);
+      // The check runs again after the wait, and the delete starts in the same step.
+      if (age > ORPHAN_IMAGE_MS && !named(name)) await rm(join(dir, name), { force: true }).catch(() => undefined);
+    }
+  }
+
   /** Deletes the entries of one task (by name, case does not matter), or all. Returns the number deleted. */
   async clearHistory(username: string, task?: string): Promise<number> {
     const file = await this.historyOf(username);
@@ -394,10 +490,16 @@ export class PickStore {
     if (!writer) {
       writer = new Writer(async () => {
         await mkdir(join(this.dir, "history"), { recursive: true, mode: 0o700 });
-        await writeFileAtomic(this.historyFile(key), JSON.stringify(this.histories.get(key) ?? { version: 1, entries: [] }) + "\n");
+        const file = this.histories.get(key) ?? { version: 1, entries: [] };
+        // The text and the list of images come from the same state, in one step.
+        const text = JSON.stringify(file) + "\n";
+        const images = new Set(file.entries.flatMap((entry) => (entry.result ? [entry.result.file] : [])));
+        await writeFileAtomic(this.historyFile(key), text);
+        this.savedImages.set(key, images);
       });
       this.historyWriters.set(key, writer);
     }
     await writer.save();
+    await this.dropUnusedImages(username);
   }
 }

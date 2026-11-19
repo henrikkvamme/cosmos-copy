@@ -475,6 +475,9 @@ export function buildVaultInstructions(username: string): string {
     "2. Picks: call start_picks with the task and the candidate ids, and give Henrik the link. Then call wait_for_picks until it returns his picks. Never ask Henrik to tell you that he is done: the server tells you.",
     "3. Plan, build and show: follow the steps in the wait_for_picks result. At the end, call show_variants.",
     "",
+    "When Henrik accepts a design, call note_result with the canvas link, the variant, the project and the deviations. It keeps the style of the project.",
+    "When Henrik asks for the style of an earlier project, call contact_sheet with source history and that project, and design from its final screenshot and references.",
+    "",
     "Use clear_pick_history only when Henrik asks.",
   ].join("\n");
 }

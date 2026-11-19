@@ -50,7 +50,7 @@ visit cosmos.so now and then to keep it fresh.
 
 Vault tools: `list_collections`, `list_references`, `search_references`, `get_reference`,
 `search_cosmos`, `save_reference`, and the design flow tools `contact_sheet`, `start_picks`,
-`wait_for_picks`, `show_variants`, `note_references` and `clear_pick_history`.
+`wait_for_picks`, `show_variants`, `note_references`, `note_result` and `clear_pick_history`.
 
 "Disconnect agents on this browser" revokes the key at once. The extension stays
 disconnected until you click "Connect agents again", which makes a new key and a new setup URL.

@@ -5,6 +5,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import sharp from "sharp";
 import { z } from "zod";
 import { CosmosError, getElement, getElementWithToken, type Reference } from "./cosmos.js";
 import { loadVisual } from "./image.js";
@@ -93,7 +95,29 @@ export const BUILD_TEXT =
   "Then do a side by side comparison, three rounds. In each round: render and take a screenshot, read your screenshot and the reference, " +
   "write down the five largest visible differences in style, and fix them.";
 
-export const SHOW_TEXT = "At the end, show the variants: call show_variants with the picks each variant takes from, and upload a screenshot of each.";
+export const SHOW_TEXT =
+  "At the end, show the variants: call show_variants with the picks each variant takes from, and upload a screenshot of each. " +
+  "When Henrik accepts a design, call note_result.";
+
+/** The final screenshot of a style record: small enough to send in a tool result, three per history page. */
+const RESULT_WIDTH = 1280;
+const RESULT_MAX_HEIGHT = 2000;
+const RESULT_MAX_BASE64 = 1_200_000;
+
+/** The top of a canvas screenshot as a JPEG within the size limits. A long page loses its lower part. */
+async function resultImage(source: Buffer): Promise<{ data: Buffer; w: number; h: number }> {
+  for (const [width, quality] of [[RESULT_WIDTH, 80], [RESULT_WIDTH, 60], [960, 60], [720, 50]] as const) {
+    const fitted = await sharp(source).resize({ width, withoutEnlargement: true }).toBuffer({ resolveWithObject: true });
+    const height = Math.min(fitted.info.height, Math.round((RESULT_MAX_HEIGHT * fitted.info.width) / RESULT_WIDTH));
+    const { data, info } = await sharp(fitted.data)
+      .extract({ left: 0, top: 0, width: fitted.info.width, height })
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer({ resolveWithObject: true });
+    if (Math.ceil(data.length / 3) * 4 <= RESULT_MAX_BASE64) return { data, w: info.width, h: info.height };
+  }
+  throw new Error("the screenshot stays too large after downscaling");
+}
 
 export interface DesignContext extends VaultContext {
   picks: PickStore;
@@ -115,7 +139,7 @@ interface SheetCursor {
   /** search: the upstream page and the position in it. */
   u?: string | null;
   k?: number;
-  /** search: the query, so a cursor is not used with another query. */
+  /** search: the query, so a cursor is not used with another query. history: the project filter. */
   q?: string;
 }
 
@@ -201,7 +225,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
 
   async function sheetsResult(
     heading: string,
-    groups: { title?: string; cells: SheetCell[]; lines: string[] }[],
+    groups: { title?: string; cells: SheetCell[]; lines: string[]; after?: { lines: string[]; image?: Buffer } }[],
     nextCursor: string | undefined,
     next: string,
     structured: Record<string, unknown>,
@@ -214,6 +238,10 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       lines.push(...group.lines);
       if (sheet.missing.length) lines.push(`(The image of ${sheet.missing.join(", ")} did not load. Leave it out.)`);
       content.push({ type: "image", data: sheet.data, mimeType: sheet.mimeType });
+      if (group.after) {
+        lines.push(...group.after.lines);
+        if (group.after.image) content.push({ type: "image", data: group.after.image.toString("base64"), mimeType: "image/jpeg" });
+      }
     }
     lines.push("", nextCursor ? `nextCursor: ${nextCursor}` : "This is the last page.", "", next);
     content.unshift({ type: "text", text: lines.join("\n") });
@@ -263,8 +291,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       title: "See references as a contact sheet",
       description:
         "See many references at once: numbered thumbnails in one image (30 per sheet), with a text list that maps each number to " +
-        "an id. Use it at the start of a design task: source history shows Henrik's earlier picks (blue frame) and passes (dimmed) " +
-        "per task; source vault shows his saved references, newest first, or ranked by meaning with a query; source cosmos shows " +
+        "an id. Use it at the start of a design task: source history shows Henrik's earlier picks (blue frame) and passes (dimmed) per task, and the style record of a project (its final screenshot; give project to see one project); " +
+        "source vault shows his saved references, newest first, or ranked by meaning with a query; source cosmos shows " +
         "a search of all of Cosmos. Look at the sheets, choose the candidates and their order, then call start_picks.",
       inputSchema: {
         source: z.enum(["vault", "cosmos", "history"]).describe("vault: Henrik's saves. cosmos: all of Cosmos (needs a query). history: his earlier picks and passes."),
@@ -272,59 +300,84 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         collection: z.string().min(1).max(300).optional().describe("vault only: a collection name, slug or id."),
         count: z.number().int().min(1).max(MAX_SHEET_COUNT).optional().describe(`vault and cosmos: references to show. Default 30, maximum ${MAX_SHEET_COUNT} (2 sheets).`),
         cursor: z.string().max(4000).optional().describe("The nextCursor of the previous contact_sheet result, with the same source and query."),
+        project: z.string().min(1).max(80).optional().describe('history only: show the tasks of one project, such as "zug-web". Use it when Henrik asks for the style of a project.'),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ source, query, collection, count, cursor }) => {
+    async ({ source, query, collection, count, cursor, project }) => {
       const position = cursor ? decodeSheetCursor(cursor) : undefined;
       if (cursor && (!position || position.s !== source)) return errorResult("The cursor is not valid for this source. Use the nextCursor of the previous contact_sheet result.");
-      const term = (query ?? "").trim();
+      const term = source === "history" ? (project ?? "").trim().toLowerCase() : (query ?? "").trim();
       if (position?.q !== undefined && position.q !== queryKey(term)) return errorResult("The cursor belongs to another query. Use the same query, or leave out the cursor.");
+      if (source === "history" && position && position.q === undefined && term) return errorResult("The cursor belongs to a history without a project. Leave out the cursor.");
       const first = position?.n ?? 1;
       const want = count ?? PER_SHEET;
 
       if (source === "history") {
-        const entries = await ctx.picks.history(ctx.username);
+        const all = await ctx.picks.history(ctx.username);
+        const projects = [...new Map(all.filter((e) => e.project).map((e) => [e.project!.toLowerCase(), e.project!])).values()];
+        const entries = term ? all.filter((e) => e.project?.toLowerCase() === term) : all;
         const start = position?.o ?? 0;
         const shown = entries.slice(start, start + HISTORY_TASKS_PER_CALL);
         if (shown.length === 0) {
-          return {
-            content: [
-              {
-                type: "text",
-                text:
-                  start === 0
-                    ? `No pick history yet. ${AFTER_HISTORY}`
-                    : "No more pick history.",
-              },
-            ],
-            structuredContent: { source, tasks: [] },
-          };
+          const none = term
+            ? `No task has the project "${project!.trim()}". ${projects.length ? `Projects with a style record: ${projects.join(", ")}.` : "No project has a style record yet."}`
+            : start === 0
+              ? `No pick history yet. ${AFTER_HISTORY}`
+              : "No more pick history.";
+          return { content: [{ type: "text", text: none }], structuredContent: { source, tasks: [], projects } };
         }
         let number = first;
-        const groups = shown.map((entry) => {
-          const picked = entry.picked.slice(0, PER_SHEET);
-          const passed = entry.passed.slice(0, Math.max(0, PER_SHEET - picked.length));
-          const items = [...picked.map((item) => ({ item, state: "picked" as const })), ...passed.map((item) => ({ item, state: "passed" as const }))];
-          const cells = items.map(({ item, state }) => ({ number: number++, thumb: item.thumb, state }));
-          const pickedNumbers = cells.filter((c) => c.state === "picked").map((c) => c.number);
-          const passedNumbers = cells.filter((c) => c.state === "passed").map((c) => c.number);
-          const hiddenPassed = entry.passed.length - passed.length;
-          const range = (numbers: number[]) => (numbers.length ? `${numbers[0]}-${numbers[numbers.length - 1]}` : "none");
-          return {
-            title: `Task "${entry.task}" (${entry.at.slice(0, 10)}): picked ${range(pickedNumbers)}, passed ${range(passedNumbers)}${hiddenPassed > 0 ? ` (${hiddenPassed} more passes not shown)` : ""}.`,
-            cells,
-            lines: items.map(({ item }, index) => `${cells[index]!.number}. [${item.id}]`),
-          };
-        });
+        const groups = await Promise.all(
+          shown.map(async (entry) => {
+            const picked = entry.picked.slice(0, PER_SHEET);
+            const passed = entry.passed.slice(0, Math.max(0, PER_SHEET - picked.length));
+            const items = [...picked.map((item) => ({ item, state: "picked" as const })), ...passed.map((item) => ({ item, state: "passed" as const }))];
+            const cells = items.map(({ item, state }) => ({ number: number++, thumb: item.thumb, state }));
+            const pickedNumbers = cells.filter((c) => c.state === "picked").map((c) => c.number);
+            const passedNumbers = cells.filter((c) => c.state === "passed").map((c) => c.number);
+            const hiddenPassed = entry.passed.length - passed.length;
+            const range = (numbers: number[]) => (numbers.length ? `${numbers[0]}-${numbers[numbers.length - 1]}` : "none");
+            const result = entry.result;
+            // The record names its references by id: the picks of the task can change after it was made.
+            const after = result && {
+              lines: [
+                `Result for the project "${entry.project}" (${result.at.slice(0, 10)}), variant "${result.variant}". The image after this sheet is its final screenshot.`,
+                ...result.took.map((take) => `  took from [${take.id}]: ${take.what}`),
+                `  deviations: ${result.deviations}`,
+              ],
+              image: await ctx.picks.readResultImage(ctx.username, result.file),
+            };
+            return {
+              title: `Task "${entry.task}" (${entry.at.slice(0, 10)})${entry.project ? `, project "${entry.project}"` : ""}: picked ${range(pickedNumbers)}, passed ${range(passedNumbers)}${hiddenPassed > 0 ? ` (${hiddenPassed} more passes not shown)` : ""}.`,
+              cells,
+              lines: items.map(({ item }, index) => `${cells[index]!.number}. [${item.id}]`),
+              after: after || undefined,
+            };
+          }),
+        );
         const end = start + shown.length;
-        const nextCursor = end < entries.length ? encode({ s: "history", n: number, o: end } satisfies SheetCursor) : undefined;
+        const nextCursor = end < entries.length ? encode({ s: "history", n: number, o: end, ...(term ? { q: queryKey(term) } : {}) } satisfies SheetCursor) : undefined;
         return sheetsResult(
-          `Pick history of @${ctx.username}: ${shown.length} of ${entries.length} tasks, newest first. One sheet per task.`,
+          `Pick history of @${ctx.username}${term ? `, project "${project!.trim()}"` : ""}: ${shown.length} of ${entries.length} tasks, newest first. One sheet per task.` +
+            (projects.length && !term ? `\nProjects with a style record: ${projects.join(", ")}. Give project to see one.` : ""),
           groups,
           nextCursor,
-          `Use what he picked and passed to choose and order the candidates for the new task. ${AFTER_HISTORY}`,
-          { source, tasks: shown.map((entry) => ({ task: entry.task, at: entry.at, picked: entry.picked.map((i) => i.id), passed: entry.passed.length })) },
+          term
+            ? "To design in the style of this project, match the final screenshot, and use the references and the deviations to see what the style keeps and what it changes."
+            : `Use what he picked and passed to choose and order the candidates for the new task. ${AFTER_HISTORY}`,
+          {
+            source,
+            projects,
+            tasks: shown.map((entry) => ({
+              task: entry.task,
+              at: entry.at,
+              picked: entry.picked.map((i) => i.id),
+              passed: entry.passed.length,
+              ...(entry.project ? { project: entry.project } : {}),
+              ...(entry.result ? { result: { variant: entry.result.variant, took: entry.result.took.map(({ id, what }) => ({ id, what })), deviations: entry.result.deviations } } : {}),
+            })),
+          },
         );
       }
 
@@ -610,9 +663,96 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         "",
         "To replace a screenshot, upload again to the same URL. The page shows each one as it arrives.",
         "Then give Henrik the canvas link. He picks one and continues by prompt: keep it, mix two, or make it more unique.",
+        "When he accepts a design, call note_result with this canvas link, the number of the variant, the project and the deviations. " +
+          "If the accepted design is not on a canvas, call show_variants with it first.",
       ];
       if (missing.length) lines.push("", `Left out (could not be read): ${missing.join(", ")}.`);
       return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: { link, uploads, missing } };
+    },
+  );
+
+  // ---- note_result ----
+
+  server.registerTool(
+    "note_result",
+    {
+      title: "Record the accepted design",
+      description:
+        "Call this when Henrik accepts a design. It keeps a style record for the project: the references the design took from, what it took, " +
+        "how it deviates from them, and the final screenshot from the canvas. Later tasks get the record with contact_sheet (source history, " +
+        "project). The design must be a variant on a canvas from show_variants, with its screenshot uploaded.",
+      inputSchema: {
+        canvas: z.string().min(1).max(500).describe("The canvas link from show_variants."),
+        variant: z.number().int().min(1).max(MAX_VARIANTS).describe("The number of the accepted variant on the canvas."),
+        project: z.string().min(1).max(80).describe('The app or repository the design is for, such as "zug-web". Use the same name each time.'),
+        deviations: z
+          .string()
+          .min(1)
+          .max(600)
+          .describe("How the accepted design deviates from the references, and what Henrik changed in words. One to three sentences."),
+        took: z
+          .array(z.object({ id: z.union([z.string().max(200), z.number().int().positive()]), what: z.string().min(1).max(120) }))
+          .max(6)
+          .optional()
+          .describe("What the design took from each reference. Needed for a reference that has no such note on the canvas. It replaces the note of the canvas."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ canvas, variant, project, deviations, took = [] }) => {
+      const id = /([A-Za-z0-9_-]{43})\/?$/.exec(canvas.trim().split(/[?#]/)[0]!)?.[1];
+      const found = id ? ctx.picks.boardWithHash(id) : undefined;
+      if (!found || found.board.username.toLowerCase() !== ctx.username.toLowerCase()) {
+        return errorResult("No canvas has this link. Canvases expire after 30 days. Call show_variants with the accepted design, then call note_result with the new link.");
+      }
+      const chosen = found.board.variants[variant - 1];
+      if (!chosen) return errorResult(`The canvas has ${found.board.variants.length} variants. Give a variant number from 1 to ${found.board.variants.length}.`);
+      if (!chosen.image) return errorResult(`Variant ${variant} has no screenshot yet. Upload it with the command from show_variants, then call note_result again.`);
+      const notes = new Map<string, string>();
+      for (const take of took) {
+        const takeId = parseId(take.id);
+        if (takeId && take.what.trim()) notes.set(takeId, take.what.trim());
+      }
+      const unknown = [...notes.keys()].filter((takeId) => !chosen.takes.some((ref) => ref.id === takeId));
+      if (unknown.length) return errorResult(`Variant ${variant} does not take from ${unknown.join(", ")}. Its references are ${chosen.takes.map((ref) => ref.id).join(", ") || "none"}.`);
+      if (chosen.takes.length === 0) return errorResult(`Variant ${variant} names no references. Call show_variants with the references it takes from, then call note_result with the new link.`);
+      const taken = chosen.takes.map((ref) => ({ id: ref.id, thumb: ref.thumb, what: notes.get(ref.id) ?? ref.what ?? "" }));
+      const blank = taken.filter((take) => !take.what).map((take) => take.id);
+      if (blank.length) return errorResult(`Say what the design took from ${blank.join(", ")}: give took with an id and what for each, such as "layout" or "colours".`);
+      let image: { data: Buffer; w: number; h: number };
+      try {
+        image = await resultImage(await readFile(ctx.picks.imageFile(found.hash, variant - 1)));
+      } catch (error) {
+        return errorResult(`Could not read the screenshot of variant ${variant}: ${error instanceof Error ? error.message : error}. Upload it again, then call note_result again.`);
+      }
+      try {
+        // The file is written first, and the history changes in one step after it. A file that no entry names is deleted later.
+        const file = await ctx.picks.writeResultImage(ctx.username, image.data);
+        const { replaced } = await ctx.picks.noteResult(ctx.username, found.board.task, project.trim(), {
+          at: new Date().toISOString(),
+          board: found.hash,
+          variant: chosen.name,
+          took: taken,
+          deviations: deviations.trim(),
+          file,
+          image: { w: image.w, h: image.h },
+        });
+        ctx.log({ event: "result_noted", took: taken.length, replaced });
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `${replaced ? "Replaced" : "Recorded"} the style record of "${found.board.task}" for the project "${project.trim()}": variant "${chosen.name}", ` +
+                `${taken.length} reference${taken.length === 1 ? "" : "s"} and the final screenshot. ` +
+                `A later task gets it with contact_sheet, source history, project "${project.trim()}".`,
+            },
+          ],
+          structuredContent: { task: found.board.task, project: project.trim(), variant: chosen.name, took: taken.map(({ id: takeId, what }) => ({ id: takeId, what })), replaced },
+        };
+      } catch (error) {
+        ctx.log({ level: "error", event: "result_write_failed", error: error instanceof Error ? error.message : String(error) });
+        return errorResult("Could not store the style record. Call note_result again in a moment.");
+      }
     },
   );
 

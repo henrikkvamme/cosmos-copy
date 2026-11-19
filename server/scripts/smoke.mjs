@@ -60,6 +60,7 @@ async function startServer() {
       KEY_FAILURE_LIMIT: "20",
       LINK_RATE_LIMIT: "60",
       PICK_WAIT_MS: "3000",
+      ORPHAN_IMAGE_MS: "0",
       PAGE_GUESS_LIMIT: "30",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -299,6 +300,7 @@ try {
           "list_collections",
           "list_references",
           "note_references",
+          "note_result",
           "save_reference",
           "search_cosmos",
           "search_references",
@@ -585,9 +587,75 @@ try {
     const picksFile = await readFile(join(dataDir, "picks.json"), "utf8");
     check("picks.json holds no session or board id, only hashes", !picksFile.includes(sessionId) && !picksFile.includes(boardId));
 
+    // The style record.
+    const historyPath = join(dataDir, "history", "henrikkvamme.json");
+    const resultDir = join(dataDir, "history-images", "henrikkvamme");
+    const resultFiles = () => readdir(resultDir).catch(() => []);
+    const noShot = await call(vault, "note_result", { canvas: canvasLink, variant: 2, project: "zug-web", deviations: "None." });
+    check("note_result: a variant without a screenshot is refused", noShot.isError === true && textOf(noShot).includes("no screenshot"), textOf(noShot));
+    const noWhat = await call(vault, "note_result", { canvas: canvasLink, variant: 1, project: "zug-web", deviations: "None." });
+    check("note_result: a reference without a note is refused", noWhat.isError === true && textOf(noWhat).includes(first) && textOf(noWhat).includes("took"), textOf(noWhat));
+    const wrongRef = await call(vault, "note_result", { canvas: canvasLink, variant: 1, project: "zug-web", deviations: "None.", took: [{ id: extra, what: "colours" }] });
+    check("note_result: a note for a reference the variant does not take is refused", wrongRef.isError === true && textOf(wrongRef).includes("does not take"), textOf(wrongRef));
+    const badCanvas = await call(vault, "note_result", { canvas: `${base}/v/${newKey().slice(0, 43)}`, variant: 1, project: "zug-web", deviations: "None." });
+    check("note_result: an unknown canvas is refused", badCanvas.isError === true && textOf(badCanvas).includes("No canvas"), textOf(badCanvas));
+    check("note_result: nothing was records so far", (await resultFiles()).length === 0);
+    const entriesBefore = JSON.parse(await readFile(historyPath, "utf8")).entries.length;
+    const recorded = await call(vault, "note_result", { canvas: canvasLink, variant: 1, project: "zug-web", deviations: "Less dense than the reference.", took: [{ id: first, what: "layout and colours" }] });
+    check("note_result: records the accepted variant", !recorded.isError && recorded.structuredContent?.replaced === false && recorded.structuredContent?.project === "zug-web", textOf(recorded));
+    let records = JSON.parse(await readFile(historyPath, "utf8")).entries;
+    const withResult = () => records.filter((e) => e.result);
+    check(
+      "note_result: the record is on the entry of the task, with its own copy of the reference",
+      records.length === entriesBefore && withResult().length === 1 && withResult()[0].project === "zug-web" && withResult()[0].result.took[0].what === "layout and colours" &&
+        withResult()[0].result.took[0].thumb.startsWith("https://") && (await resultFiles()).join() === withResult()[0].result.file && !JSON.stringify(records).includes(boardId),
+      records,
+    );
+    const recordedAgain = await call(vault, "note_result", { canvas: canvasLink, variant: 1, project: "zug-web", deviations: "Less dense, and the sidebar is gone.", took: [{ id: first, what: "layout" }] });
+    records = JSON.parse(await readFile(historyPath, "utf8")).entries;
+    check(
+      "note_result: the same canvas replaces its record, and the old image is deleted",
+      !recordedAgain.isError && recordedAgain.structuredContent?.replaced === true && withResult().length === 1 && withResult()[0].result.took[0].what === "layout" && (await resultFiles()).join() === withResult()[0].result.file,
+      textOf(recordedAgain),
+    );
+    // Another project with the same task name, and a screenshot of a long page.
+    const shownTwo = await call(vault, "show_variants", { task: "web dashboard for energy trading", variants: [{ name: "Dark", takes: [{ id: extra, what: "colours" }] }] });
+    const uploadTwo = new URL(shownTwo.structuredContent?.uploads?.[0]?.url ?? base);
+    secret(uploadTwo.pathname.split("/")[2]);
+    secret((shownTwo.structuredContent?.link ?? "").split("/v/")[1]);
+    const long = await sharp({ create: { width: 2000, height: 8000, channels: 3, background: "#808080", noise: { type: "gaussian", mean: 128, sigma: 60 } } }).jpeg({ quality: 50 }).toBuffer();
+    const putLong = await page(uploadTwo.pathname, { method: "PUT", body: long });
+    const otherProject = await call(vault, "note_result", { canvas: shownTwo.structuredContent?.link, variant: 1, project: "Other App", deviations: "Darker." });
+    records = JSON.parse(await readFile(historyPath, "utf8")).entries;
+    check(
+      "note_result: another canvas with the same task name gets its own entry",
+      putLong.status === 200 && !otherProject.isError && otherProject.structuredContent?.replaced === false && withResult().length === 2 && records.length === entriesBefore + 1 &&
+        withResult().map((e) => e.project).sort().join() === "Other App,zug-web" && (await resultFiles()).length === 2,
+      textOf(otherProject),
+    );
+    const longRecord = records.find((e) => e.project === "Other App")?.result;
+    const longFile = longRecord ? await readFile(join(resultDir, longRecord.file)) : Buffer.alloc(0);
+    check("note_result: a long screenshot is cut and stays small", longRecord?.image.w === 1280 && longRecord?.image.h === 2000 && longFile.length * 1.34 < 1_200_000, { image: longRecord?.image, bytes: longFile.length });
+    const rejectedLater = await call(vault, "note_references", { task: "web dashboard for energy trading", rejected: [extra] });
+    records = JSON.parse(await readFile(historyPath, "utf8")).entries;
+    check("note_result: a later rejection does not change the record", !rejectedLater.isError && records.find((e) => e.project === "Other App")?.result.took[0].id === extra);
+    const style = await call(vault, "contact_sheet", { source: "history", project: "ZUG-web" });
+    check(
+      "contact_sheet history: a project gives its record with the final screenshot",
+      !style.isError && style.structuredContent?.tasks?.length === 1 && style.structuredContent.tasks[0].result?.deviations.includes("sidebar") && images(style).length === 2 &&
+        textOf(style).includes(`took from [${first}]: layout`) && textOf(style).includes("deviations: Less dense") && !textOf(style).includes("Other App"),
+      textOf(style),
+    );
+    const allStyles = await call(vault, "contact_sheet", { source: "history" });
+    check("contact_sheet history: the full history names the projects", textOf(allStyles).includes("Projects with a style record") && allStyles.structuredContent?.projects?.length === 2, textOf(allStyles));
+    const noProject = await call(vault, "contact_sheet", { source: "history", project: "nope" });
+    check("contact_sheet history: an unknown project names the known ones", !noProject.isError && textOf(noProject).includes('No task has the project "nope"') && textOf(noProject).includes("zug-web"), textOf(noProject));
+    check("design: the server instructions name note_result", instructions.includes("note_result") && instructions.includes("style of an earlier project"), instructions);
+
     // Clearing the history.
     const cleared = await call(vault, "clear_pick_history", { task: "web dashboard for energy trading" });
-    check("clear_pick_history: deletes the entries of one task", !cleared.isError && cleared.structuredContent?.removed === 1, textOf(cleared));
+    check("clear_pick_history: deletes the entries of one task", !cleared.isError && cleared.structuredContent?.removed === 2, textOf(cleared));
+    check("clear_pick_history: the result images of the task are deleted", (await resultFiles()).length === 0, await resultFiles());
     const clearedAll = await call(vault, "clear_pick_history", {});
     check("clear_pick_history: deletes the rest", !clearedAll.isError && clearedAll.structuredContent?.removed === 1, textOf(clearedAll));
     const afterClear = await call(vault, "contact_sheet", { source: "history" });

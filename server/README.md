@@ -66,6 +66,11 @@ Vault, design flow (the server instructions give the agent the order):
   steps. The agent never asks Henrik to say that he is done.
 - `show_variants { task, variants: [{ name, takes: [{ id, what? }] }] }`: 1 to 6 variants. Returns
   the canvas link and one upload command per variant.
+- `note_result { canvas, variant, project, deviations, took? }`: for the design Henrik accepts. It
+  keeps a style record with the task in the pick history: the project, the references of the
+  variant with what the design took from each, the deviations, and the top of the final screenshot
+  (1280 px wide, at most 2000 px high). A record of the same canvas is replaced; a record of another
+  canvas is not. `contact_sheet { source: "history", project }` gives the records of one project.
 - `note_references { task, pasted?, rejected? }`: for references Henrik pasted into the chat. `pasted`
   holds the labels on the strips of the copied images, such as `1850854004-65` (id and two check
   digits, mod 97). They become the picks of the task in the pick history, and the result gives the

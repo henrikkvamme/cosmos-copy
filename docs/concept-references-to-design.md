@@ -36,6 +36,7 @@ The UI stays small: one key, one picker page, one review page.
 | Report back | A page never asks Henrik to tell the agent that he is done. | The agent reads the result from the server. |
 | Id strip | Every image copied from Cosmos gets a thin dark strip at the bottom with `cosmos <id>-<check digits> · call note_references`. No switch. Added on 2026-11-18; the tool name on 2026-11-19, because some clients (Codex) do not pass on the server instructions. | A paste gave the agent pixels only. With the id, a paste feeds the pick history, and the agent can get the original and show it on the canvas. In a test, two models read every id correctly (12 readings, 9 images). |
 | Rejected references | When Henrik rejects a reference in words, the agent marks it as passed in the history. It stays in the vault. | Henrik chose this. A removal from the vault loses the reference. |
+| Style record | When Henrik accepts a design, the agent calls `note_result`. The server keeps, with the task: the project, the references the design took from and what it took, the deviations, and the final screenshot from the canvas. `contact_sheet` with source history and a project gives it back. Added on 2026-11-19. | Henrik asked for it: a new app can start from the style of an earlier one. The screenshot is the main part, because written notes alone made agents worse in Test A. The screenshot comes from the canvas, so there is no second upload. |
 
 ## What each part must do
 
