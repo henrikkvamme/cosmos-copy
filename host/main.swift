@@ -86,14 +86,16 @@ func pngData(from data: Data) -> Data? {
 
 /// The label of a Cosmos reference: its id and two check digits (mod 97, as in an IBAN), so the
 /// server can reject an id that an agent read wrongly. The id comes from the file name
-/// `cosmos-<id>`, which the extension gives to every Cosmos element.
+/// `cosmos-<id>`, which the extension gives to every Cosmos element. The label ends with the name
+/// of the MCP tool, because the image is the only instruction that reaches every agent: some
+/// clients do not pass on the server instructions.
 func idLabel(forName name: String) -> String? {
     guard name.hasPrefix("cosmos-") else { return nil }
     let digits = name.dropFirst("cosmos-".count)
     guard !digits.isEmpty, digits.count <= 19, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
           let id = UInt64(digits) else { return nil }
     let check = 98 - (id % 97) * 100 % 97
-    return "cosmos \(digits)-" + String(format: "%02d", check)
+    return "cosmos \(digits)-" + String(format: "%02d", check) + " · call note_references"
 }
 
 /// Adds a dark strip with the label under the image. The image itself is not covered. An image

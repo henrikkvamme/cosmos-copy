@@ -27,7 +27,7 @@ its variants beside them on a canvas page.
 
 - Hover an element on Cosmos, or open one, and press `C`. A toast confirms the copy. In a text field, `C` types a letter as usual.
 - Paste in an agent: an image pastes as an image, and a video pastes as an mp4 file.
-- A copied Cosmos image has a thin dark strip at the bottom with a label such as `cosmos 1850854004-65`: the id and two check digits. An agent with the vault reads the label and knows which reference it is. The reference in Cosmos does not change. Videos and images from other sites get no strip.
+- A copied Cosmos image has a thin dark strip at the bottom with a label such as `cosmos 1850854004-65 · call note_references`: the id, two check digits, and the name of the tool that an agent calls. An agent with the vault reads the label and knows which reference it is. The reference in Cosmos does not change. Videos and images from other sites get no strip.
 - Press `C` on more elements to copy several at once. Each copy adds to the clipboard, and the toast shows how many it holds. A new batch starts when you leave the browser (for example to paste), or when you copy something else.
 - On any other site, the shortcut (Option+Shift+C) copies the image or video under the cursor (no like or save). On cosmos.so the shortcut works too.
 - Click the extension icon to see what is on the clipboard. Click a thumbnail to open it on Cosmos, or the x to take it off the clipboard.

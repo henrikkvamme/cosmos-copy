@@ -108,7 +108,8 @@ export function checkDigits(id: string): string {
  */
 export function parseLabel(value: string | number): { id: string } | { bad: string } {
   const text = String(value).trim();
-  const match = /^(?:cosmos[\s:-]*)?(\d{1,19})\s*-\s*(\d{2})$/i.exec(text);
+  // The strip also names this tool after the label, and an agent can send that text along.
+  const match = /^(?:cosmos[\s:-]*)?(\d{1,19})\s*-\s*(\d{2})(?:\s*[^\s\d].*)?$/i.exec(text);
   return match && checkDigits(match[1]!) === match[2] ? { id: match[1]! } : { bad: text };
 }
 

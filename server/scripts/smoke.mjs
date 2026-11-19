@@ -600,12 +600,14 @@ try {
     const wrongDigit = label(REAL_ELEMENT).replace(/^\d/, (d) => String((Number(d) + 1) % 10 || 1));
     const misread = await call(vault, "note_references", { task: "Paste task", pasted: [label(first), wrongDigit] });
     check("note_references: a misread label records nothing", misread.isError === true && textOf(misread).includes("Nothing was recorded") && textOf(misread).includes(wrongDigit), textOf(misread));
+    const extraDigit = await call(vault, "note_references", { task: "Paste task", pasted: [`${label(first)}0`] });
+    check("note_references: a third check digit is a misread", extraDigit.isError === true, textOf(extraDigit));
     const noCheck = await call(vault, "note_references", { task: "Paste task", pasted: [REAL_ELEMENT] });
     check("note_references: a pasted id needs its check digits", noCheck.isError === true, textOf(noCheck));
     const stillEmpty = await call(vault, "contact_sheet", { source: "history" });
     check("note_references: the history is still empty", textOf(stillEmpty).includes("No pick history yet"), textOf(stillEmpty));
 
-    const noted = await call(vault, "note_references", { task: "Paste task", pasted: [label(first), `cosmos ${label(REAL_ELEMENT)}`] });
+    const noted = await call(vault, "note_references", { task: "Paste task", pasted: [label(first), `cosmos ${label(REAL_ELEMENT)} · call note_references`] });
     check(
       "note_references: pasted references are the picks, with the next steps",
       !noted.isError && JSON.stringify(noted.structuredContent?.picked) === JSON.stringify([first, REAL_ELEMENT]) && textOf(noted).includes("Next steps") && textOf(noted).includes("do not open a picker"),
