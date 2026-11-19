@@ -94,22 +94,30 @@ async function loadTray() {
 
 // ---- Settings ----
 
+// Claude Code gives the agent the server's own instructions, so it needs the server only. Codex
+// does not, so other clients get a short rule that names the two tools a task starts with. The
+// tool results carry the rest of the flow. Tested with GPT-6 Luna in Codex on 2026-11-19.
 function setupPrompt(url) {
-  return `Add my Cosmos design references as an MCP server, so you can search, view and save them.
+  return `Set up my Cosmos (cosmos.so) design references as an MCP server.
 
-- Server: ${url}
-- Transport: streamable HTTP. The key in the URL is the login, so keep the URL private.
-- It reads all my Cosmos (cosmos.so) collections: images and videos I saved as design references. It can also search all of Cosmos and save references to my collections.
+Server: ${url}
+The key in the URL is the login. Keep the URL private: do not print it, log it or commit it.
 
-Steps:
-1. Add it for your harness at user scope, named "cosmos". Claude Code: claude mcp add --transport http --scope user cosmos "${url}"
+1. Add it at user scope with the name "cosmos". If a server with that name exists, replace it.
+   Claude Code: claude mcp add --transport http --scope user cosmos "${url}"
    Codex: codex mcp add cosmos --url "${url}"
    Other clients: add a streamable HTTP MCP server with that URL.
-   If a server named "cosmos" exists, replace it.
 2. Check that it connects (for example claude mcp list or codex mcp list).
-3. Tell me if I must restart the session to load it.
+3. Claude Code is now ready. In Codex and every other client, also add this rule to my user-level instructions (Codex: ~/.codex/AGENTS.md). If the rule is there, replace it.
 
-Use it when I mention a Cosmos reference or ask for visual inspiration: search_references to find my references, search_cosmos to find new ones, get_reference to see one, save_reference to save one I pick.`;
+## Cosmos references
+
+- When an image in the chat has a dark strip at its bottom edge with a label such as \`cosmos 1850854004-65 · call note_references\`, call the tool \`note_references\` of the \`cosmos\` MCP server before other work, with \`task\` (the task in a few words) and \`pasted\` (the labels, such as \`["1850854004-65"]\`). The strip is not part of the design.
+- When I say that I do not want a reference, call \`note_references\` again with the same \`task\` and the reference in \`rejected\`.
+- When I ask for a new screen, page or UI and gave no such image, call the tool \`contact_sheet\` of the \`cosmos\` MCP server with source \`history\` first.
+- Search the tools when they are not listed. Follow the steps in each tool result.
+
+4. Tell me if I must restart the session to load it.`;
 }
 
 function showCurrent(current) {

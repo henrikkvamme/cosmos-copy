@@ -37,6 +37,12 @@ its variants beside them on a canvas page.
 
 Open the extension, click the gear and click "Copy setup prompt". Paste it into any agent.
 
+The prompt adds the server. Claude Code needs no more: it gives the agent the server's own
+instructions. Codex does not, so in Codex and other clients the prompt also adds a short rule
+to the user-level instructions (Codex: `~/.codex/AGENTS.md`). The rule names the two tools
+that a task starts with, and the tool results carry the rest. Codex asks for approval when a
+Cosmos tool changes something; allow the tools if you run Codex unattended.
+
 The extension links your Cosmos login to the server for each browser. It sends the
 `csms_accessToken` cookie on install, on startup, every 6 hours and when Cosmos renews it.
 The setup URL holds this browser's device key, so keep it private. The token lasts 7 days:

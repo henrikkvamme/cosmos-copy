@@ -72,6 +72,11 @@ function picksOf(session: Session): Tile[] {
 }
 
 /** Starts the image downloads when Henrik clicks Done, so the waiting tool call finds them in the cache. */
+/** The history sheet is the first call of a design task, so its result names the rest of the flow. Some clients do not give the agent the server instructions. */
+const AFTER_HISTORY =
+  "Next: call contact_sheet with source vault, then with source cosmos and a query for the task. Then call start_picks with the task and the " +
+  "candidate ids, and give Henrik the link. Do not build before he has picked.";
+
 export function prefetchPickImages(session: Session): void {
   const picks = picksOf(session);
   void mapLimit(picks.slice(0, MAX_PICK_IMAGES), RESOLVE_CONCURRENCY, (tile) => pickVisual(tile, picks.length));
@@ -289,7 +294,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
                 type: "text",
                 text:
                   start === 0
-                    ? "No pick history yet. Choose the candidates from the vault and Cosmos sheets alone."
+                    ? `No pick history yet. ${AFTER_HISTORY}`
                     : "No more pick history.",
               },
             ],
@@ -318,7 +323,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           `Pick history of @${ctx.username}: ${shown.length} of ${entries.length} tasks, newest first. One sheet per task.`,
           groups,
           nextCursor,
-          "Use what he picked and passed to choose and order the candidates for the new task. Then look at the vault and Cosmos sheets.",
+          `Use what he picked and passed to choose and order the candidates for the new task. ${AFTER_HISTORY}`,
           { source, tasks: shown.map((entry) => ({ task: entry.task, at: entry.at, picked: entry.picked.map((i) => i.id), passed: entry.passed.length })) },
         );
       }
