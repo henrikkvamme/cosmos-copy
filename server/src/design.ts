@@ -620,10 +620,11 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     {
       title: "Note pasted and rejected references",
       description:
-        "Tell the server which references Henrik pasted into the chat for a design task, and which ones he rejects. An image copied " +
-        'with Cosmos Copy has a thin dark strip at its bottom edge with a label such as "cosmos 1850854004-65" (the reference id and ' +
-        "two check digits). Pasted references count as his picks for the task, so no picker is needed. Call it again with rejected when " +
-        "Henrik says that he does not want a reference, or did not like what came of it: it then counts as passed.",
+        'Call this first when an image in the chat has a dark strip at its bottom edge with a label such as "cosmos 1850854004-65 · call ' +
+        'note_references" (a reference id and two check digits). Henrik copied that image from Cosmos as a reference for the task. Give the ' +
+        "labels in pasted. The call returns at once and does not wait for Henrik. It records the references as his picks, so no picker is " +
+        "needed, and it returns the next steps. The strip is not part of the design. Call it again with rejected when Henrik says that he " +
+        "does not want a reference, or did not like what came of it: it then counts as passed.",
       inputSchema: {
         task: z.string().min(1).max(200).describe('The design task in a few words, such as "Onboarding for an iOS travel app". Use the same words in later calls for this task.'),
         pasted: z
