@@ -694,6 +694,13 @@ try {
     );
     const notedSheet = await call(vault, "contact_sheet", { source: "history" });
     check("note_references: the history sheet shows the task", !notedSheet.isError && textOf(notedSheet).includes('Task "Paste task"') && images(notedSheet).length === 1, textOf(notedSheet).slice(0, 300));
+    // A video has no strip: the name of the copied file holds the id.
+    const byName = await call(vault, "note_references", { task: "Video task", pasted: [`cosmos-${first}.mp4`, `/Users/h/Downloads/Cosmos References/cosmos-${REAL_ELEMENT}.png`] });
+    check("note_references: a file name of a copied reference is a pick", !byName.isError && JSON.stringify(byName.structuredContent?.picked) === JSON.stringify([first, REAL_ELEMENT]), textOf(byName));
+    const noSuchFile = await call(vault, "note_references", { task: "Video task 2", pasted: ["cosmos-9999999999999999998.mp4"] });
+    check("note_references: a file name with an unknown id records nothing", noSuchFile.isError === true && textOf(noSuchFile).includes("Nothing was recorded"), textOf(noSuchFile));
+    const otherName = await call(vault, "note_references", { task: "Video task 2", pasted: [`web-${first}.png`, `cosmos-${first}`] });
+    check("note_references: another file name is a misread", otherName.isError === true && textOf(otherName).includes("Nothing was recorded"), textOf(otherName));
     const notAnId = await call(vault, "note_references", { task: "Other task", rejected: ["not an id"] });
     check("note_references: a value that is not an id records nothing", notAnId.isError === true, textOf(notAnId));
     await call(vault, "clear_pick_history", {});

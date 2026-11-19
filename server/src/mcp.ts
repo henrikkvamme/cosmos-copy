@@ -113,6 +113,15 @@ export function parseLabel(value: string | number): { id: string } | { bad: stri
   return match && checkDigits(match[1]!) === match[2] ? { id: match[1]! } : { bad: text };
 }
 
+/**
+ * The id from the name of a file that Cosmos Copy saved, such as "cosmos-1277394779.mp4".
+ * A video has no strip, and some clients give the agent the file name and not the pixels.
+ * The name has no check digits, so the caller must check that the reference exists.
+ */
+export function parseFileName(value: string | number): string | undefined {
+  return /(?:^|[\/\\])cosmos-(\d{1,19})\.[a-z0-9]{2,5}$/i.exec(String(value).trim())?.[1];
+}
+
 export const limitSchema = z
   .number()
   .int()

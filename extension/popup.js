@@ -113,6 +113,7 @@ The key in the URL is the login. Keep the URL private: do not print it, log it o
 ## Cosmos references
 
 - When an image in the chat has a dark strip at its bottom edge with a label such as \`cosmos 1850854004-65 · call note_references\`, call the tool \`note_references\` of the \`cosmos\` MCP server before other work, with \`task\` (the task in a few words) and \`pasted\` (the labels, such as \`["1850854004-65"]\`). The strip is not part of the design.
+- A file that I attach with a name such as \`cosmos-1277394779.mp4\` is also a reference: a video has no strip. Give its file name in \`pasted\`.
 - When I say that I do not want a reference, call \`note_references\` again with the same \`task\` and the reference in \`rejected\`.
 - When I ask for a new screen, page or UI and gave no such image, call the tool \`contact_sheet\` of the \`cosmos\` MCP server with source \`history\` first. Its result starts a flow where I pick references. Do not build before I picked.
 - Search the tools when they are not listed. Follow the steps in each tool result.

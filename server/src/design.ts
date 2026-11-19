@@ -10,7 +10,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { CosmosError, getElement, getElementWithToken, type Reference } from "./cosmos.js";
 import { loadVisual } from "./image.js";
-import { errorResult, parseId, parseLabel } from "./mcp.js";
+import { errorResult, parseFileName, parseId, parseLabel } from "./mcp.js";
 import {
   ID_PATTERN,
   MAX_CANDIDATES,
@@ -769,7 +769,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       description:
         'Call this first when an image in the chat has a dark strip at its bottom edge with a label such as "cosmos 1850854004-65 · call ' +
         'note_references" (a reference id and two check digits). Henrik copied that image from Cosmos as a reference for the task. Give the ' +
-        "labels in pasted. The call returns at once and does not wait for Henrik. It records the references as his picks, so no picker is " +
+        'labels in pasted. Call it also when Henrik attached a file with a name such as "cosmos-1277394779.mp4" (a video has no strip): give ' +
+        "the file name in pasted. The call returns at once and does not wait for Henrik. It records the references as his picks, so no picker is " +
         "needed, and it returns the next steps. The strip is not part of the design. Call it again with rejected when Henrik says that he " +
         "does not want a reference, or did not like what came of it: it then counts as passed.",
       inputSchema: {
@@ -777,11 +778,14 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         pasted: z
           .preprocess(oneAsList, z.array(z.string().min(1).max(60)).max(MAX_NOTED))
           .optional()
-          .describe('The labels on the strips of the pasted images, read digit by digit, such as "1850854004-65". The check digits are required.'),
+          .describe(
+            'The labels on the strips of the pasted images, read digit by digit, such as "1850854004-65". The check digits are required. ' +
+              'For an attached file without a strip, its name, such as "cosmos-1277394779.mp4".',
+          ),
         rejected: z
           .preprocess(oneAsList, z.array(z.union([z.string().min(1).max(200), z.number().int().positive()])).max(MAX_NOTED))
           .optional()
-          .describe("References Henrik rejects: a label from a strip, or a reference id."),
+          .describe("References Henrik rejects: a label from a strip, a file name, or a reference id."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -791,21 +795,23 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const misread: string[] = [];
       for (const raw of pasted) {
         const label = parseLabel(raw);
-        if ("bad" in label) misread.push(label.bad);
-        else if (!pastedIds.includes(label.id)) pastedIds.push(label.id);
+        const id = "id" in label ? label.id : parseFileName(raw);
+        if (!id) misread.push(String(raw).trim());
+        else if (!pastedIds.includes(id)) pastedIds.push(id);
       }
       const rejectedIds: string[] = [];
       for (const raw of rejected) {
         // A plain id is fine here. A label must still pass its check digits.
         const label = parseLabel(raw);
-        const id = "id" in label ? label.id : parseId(raw);
+        const id = "id" in label ? label.id : (parseFileName(raw) ?? parseId(raw));
         if (!id) misread.push(String(raw));
         else if (!rejectedIds.includes(id)) rejectedIds.push(id);
       }
       if (misread.length) {
         return errorResult(
           `Nothing was recorded. ${misread.map((m) => `"${m}"`).join(", ")} ${misread.length === 1 ? "is not a label with correct check digits" : "are not labels with correct check digits"}. ` +
-            'Read the strip at the bottom of that image again, digit by digit, and give the label as it is printed, such as "1850854004-65".',
+            'Read the strip at the bottom of that image again, digit by digit, and give the label as it is printed, such as "1850854004-65". ' +
+            'For a file without a strip, give its name, such as "cosmos-1277394779.mp4".',
         );
       }
 
@@ -849,7 +855,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const picks = found(pastedIds.filter((id) => !rejectedIds.includes(id)));
       const passes = found(rejectedIds);
       if (picks.length === 0 && passes.length === 0) {
-        return errorResult(`Nothing was recorded: Cosmos has no reference with the id ${missing.join(", ")}. Read the strip again.`);
+        return errorResult(`Nothing was recorded: Cosmos has no reference with the id ${missing.join(", ")}. Read the strip or the file name again.`);
       }
       try {
         await ctx.picks.noteReferences(ctx.username, task, picks, passes);
