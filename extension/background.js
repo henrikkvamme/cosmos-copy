@@ -25,6 +25,7 @@ async function target() {
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "copy-reference") copyReference(tab);
+  if (command === "add-reference") copyReference(tab, undefined, true);
 });
 
 async function activeTab(tab) {
@@ -53,11 +54,8 @@ async function native(message) {
   return result;
 }
 
-// Copies build up a batch on the clipboard. The batch ends when Brave loses focus (you went
-// to paste), or when something else changes the clipboard (the helper checks the change count).
-chrome.windows.onFocusChanged.addListener((windowId) => {
-  if (windowId === chrome.windows.WINDOW_ID_NONE) chrome.storage.session.remove("batch");
-});
+// A copy replaces the clipboard. An add (Shift+C) keeps the batch that is on it. The batch is
+// gone when something else changed the clipboard (the helper checks the change count).
 
 // The batch as it is on the clipboard now: empty when something else was copied since.
 async function currentBatch() {
@@ -75,9 +73,9 @@ function serial(task) {
   return run;
 }
 
-function copyToClipboard(media, name, meta) {
+function copyToClipboard(media, name, meta, add) {
   return serial(async () => {
-    const { batch } = await chrome.storage.session.get("batch");
+    const batch = add ? (await chrome.storage.session.get("batch")).batch : undefined;
     const result = await native({ url: media.url, kind: media.kind, name, appendTo: batch?.changeCount });
     const item = { path: result.path, kind: media.kind, thumb: media.thumb ?? media.url, ...meta };
     const kept = result.count > 1 ? (batch?.items ?? []).filter((i) => i.path !== item.path) : [];
@@ -117,7 +115,7 @@ async function keep(elementId, prefs) {
 }
 
 // `found` is the target the content script already found (plain "c" on cosmos.so).
-async function copyReference(tab, found) {
+async function copyReference(tab, found, add = false) {
   tab = await activeTab(tab);
   if (!tab?.id) return;
   try {
@@ -131,7 +129,7 @@ async function copyReference(tab, found) {
     const prefs = await settings();
     // Copy and keep at the same time: the clipboard does not wait for Cosmos.
     const [copied, kept] = await Promise.all([
-      copyToClipboard(media, elementId ? `cosmos-${elementId}` : undefined, meta),
+      copyToClipboard(media, elementId ? `cosmos-${elementId}` : undefined, meta, add),
       elementId ? keep(elementId, prefs) : { done: [], failed: [] },
     ]);
 
@@ -187,9 +185,9 @@ const popupHandlers = {
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
-  // Plain "c" on cosmos.so: the content script found a Cosmos element under the cursor.
+  // "c" or Shift+"c" on cosmos.so: the content script found a Cosmos element under the cursor.
   if (msg?.type === "cosmos-copy:copy" && sender.tab?.id && /^\d+$/.test(String(msg.target?.elementId ?? ""))) {
-    copyReference(sender.tab, { elementId: String(msg.target.elementId) });
+    copyReference(sender.tab, { elementId: String(msg.target.elementId) }, msg.add === true);
     return false;
   }
   const handler = popupHandlers[msg?.type];

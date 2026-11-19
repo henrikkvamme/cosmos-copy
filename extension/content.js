@@ -114,7 +114,8 @@
     window.addEventListener(
       "keydown",
       (e) => {
-        if (e.key !== "c" || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
+        // C puts one element on the clipboard. Shift+C adds to what is there.
+        if (e.key.toLowerCase() !== "c" || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
         const focused = e.composedPath?.()[0] ?? e.target;
         if (isTextField(focused) || isTextField(document.activeElement)) return;
         const target = cosmosTarget(elementsUnderCursor());
@@ -123,7 +124,7 @@
         e.stopImmediatePropagation();
         swallowed = true;
         if (e.repeat) return;
-        chrome.runtime.sendMessage({ type: "cosmos-copy:copy", target }).catch(() => {
+        chrome.runtime.sendMessage({ type: "cosmos-copy:copy", target, add: e.shiftKey }).catch(() => {
           toast("Cosmos Copy was updated. Reload the page to copy.", true);
         });
       },
@@ -134,7 +135,7 @@
       window.addEventListener(
         type,
         (e) => {
-          if (!swallowed || e.key !== "c") return;
+          if (!swallowed || e.key.toLowerCase() !== "c") return;
           e.preventDefault();
           e.stopImmediatePropagation();
           if (type === "keyup") swallowed = false;
