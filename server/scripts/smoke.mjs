@@ -613,7 +613,7 @@ try {
       !noted.isError && JSON.stringify(noted.structuredContent?.picked) === JSON.stringify([first, REAL_ELEMENT]) && textOf(noted).includes("Next steps") && textOf(noted).includes("do not open a picker"),
       textOf(noted),
     );
-    const rejectedOne = await call(vault, "note_references", { task: "paste task", rejected: [first] });
+    const rejectedOne = await call(vault, "note_references", { task: "paste task", rejected: first });
     check("note_references: a rejected reference is marked as passed", !rejectedOne.isError && JSON.stringify(rejectedOne.structuredContent?.passed) === JSON.stringify([first]), textOf(rejectedOne));
     const notedFile = JSON.parse(await readFile(join(dataDir, "history", "henrikkvamme.json"), "utf8"));
     check(

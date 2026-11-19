@@ -614,6 +614,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
   // ---- note_references ----
 
   const MAX_NOTED = 20;
+  // Some models send one label as a plain value, not as a list. In a test, GPT-6 Luna did so in 9 of 14 runs.
+  const oneAsList = (value: unknown): unknown => (typeof value === "string" || typeof value === "number" ? [value] : value);
 
   server.registerTool(
     "note_references",
@@ -628,20 +630,18 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       inputSchema: {
         task: z.string().min(1).max(200).describe('The design task in a few words, such as "Onboarding for an iOS travel app". Use the same words in later calls for this task.'),
         pasted: z
-          .array(z.string().min(1).max(60))
-          .max(MAX_NOTED)
+          .preprocess(oneAsList, z.array(z.string().min(1).max(60)).max(MAX_NOTED))
           .optional()
           .describe('The labels on the strips of the pasted images, read digit by digit, such as "1850854004-65". The check digits are required.'),
         rejected: z
-          .array(z.union([z.string().min(1).max(200), z.number().int().positive()]))
-          .max(MAX_NOTED)
+          .preprocess(oneAsList, z.array(z.union([z.string().min(1).max(200), z.number().int().positive()])).max(MAX_NOTED))
           .optional()
           .describe("References Henrik rejects: a label from a strip, or a reference id."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
     async ({ task, pasted = [], rejected = [] }) => {
-      if (pasted.length === 0 && rejected.length === 0) return errorResult("Give pasted, rejected or both.");
+      if (pasted.length === 0 && rejected.length === 0) return errorResult('Nothing was recorded: give the labels in "pasted", the rejected references in "rejected", or both. Example: {"task": "Travel app home screen", "pasted": ["1850854004-65"]}.');
       const pastedIds: string[] = [];
       const misread: string[] = [];
       for (const raw of pasted) {
