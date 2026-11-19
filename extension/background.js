@@ -73,15 +73,24 @@ function serial(task) {
   return run;
 }
 
-function copyToClipboard(media, name, meta, add) {
-  return serial(async () => {
-    const batch = add ? (await chrome.storage.session.get("batch")).batch : undefined;
-    const result = await native({ url: media.url, kind: media.kind, name, appendTo: batch?.changeCount });
-    const item = { path: result.path, kind: media.kind, thumb: media.thumb ?? media.url, ...meta };
-    const kept = result.count > 1 ? (batch?.items ?? []).filter((i) => i.path !== item.path) : [];
-    await chrome.storage.session.set({ batch: { changeCount: result.changeCount, items: [...kept, item] } });
-    return result;
-  });
+// A copy takes its place in the queue when the key press arrives, before the lookups. Without
+// this, C on one element and Shift+C on the next can land in the wrong order when the second
+// lookup ends first, and the replace then erases the add.
+function reserveClipboard() {
+  let release;
+  const turn = clipboardQueue;
+  clipboardQueue = new Promise((resolve) => (release = resolve));
+  return { turn, release };
+}
+
+async function copyToClipboard(slot, media, name, meta, add) {
+  await slot.turn;
+  const batch = add ? (await chrome.storage.session.get("batch")).batch : undefined;
+  const result = await native({ url: media.url, kind: media.kind, name, appendTo: batch?.changeCount });
+  const item = { path: result.path, kind: media.kind, thumb: media.thumb ?? media.url, ...meta };
+  const kept = result.count > 1 ? (batch?.items ?? []).filter((i) => i.path !== item.path) : [];
+  await chrome.storage.session.set({ batch: { changeCount: result.changeCount, items: [...kept, item] } });
+  return result;
 }
 
 function removeFromClipboard(path) {
@@ -116,8 +125,9 @@ async function keep(elementId, prefs) {
 
 // `found` is the target the content script already found (plain "c" on cosmos.so).
 async function copyReference(tab, found, add = false) {
+  const slot = reserveClipboard();
   tab = await activeTab(tab);
-  if (!tab?.id) return;
+  if (!tab?.id) return slot.release();
   try {
     found ??= await askTab(tab.id, { type: "cosmos-copy:target" });
     if (found.error) throw new Error(found.error);
@@ -129,7 +139,7 @@ async function copyReference(tab, found, add = false) {
     const prefs = await settings();
     // Copy and keep at the same time: the clipboard does not wait for Cosmos.
     const [copied, kept] = await Promise.all([
-      copyToClipboard(media, elementId ? `cosmos-${elementId}` : undefined, meta, add),
+      copyToClipboard(slot, media, elementId ? `cosmos-${elementId}` : undefined, meta, add).finally(slot.release),
       elementId ? keep(elementId, prefs) : { done: [], failed: [] },
     ]);
 
@@ -146,6 +156,8 @@ async function copyReference(tab, found, add = false) {
     const hint = msg.includes("native messaging host") ? " Run install.sh in cosmos-copy." : "";
     toast(tab.id, `Cosmos Copy: ${msg}${hint}`, true);
     console.error("Cosmos Copy", err);
+  } finally {
+    slot.release(); // Also when a lookup failed before the copy.
   }
 }
 
