@@ -79,8 +79,20 @@ function serial(task) {
 function reserveClipboard() {
   let release;
   const turn = clipboardQueue;
-  clipboardQueue = new Promise((resolve) => (release = resolve));
+  const done = new Promise((resolve) => (release = resolve));
+  // The next in line waits for the ones before this copy and for this copy: a copy that fails
+  // early must not let a later one pass an earlier one that is still at work.
+  clipboardQueue = turn.then(() => done);
   return { turn, release };
+}
+
+// A lookup that never ends must not hold the queue. After the limit the copy fails, and the
+// late answer is dropped, because the copy step is never reached.
+const LOOKUP_MS = 20_000;
+function withLimit(promise, what) {
+  let timer;
+  const limit = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`${what} took too long`)), LOOKUP_MS)));
+  return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
 }
 
 async function copyToClipboard(slot, media, name, meta, add) {
@@ -126,15 +138,15 @@ async function keep(elementId, prefs) {
 // `found` is the target the content script already found (plain "c" on cosmos.so).
 async function copyReference(tab, found, add = false) {
   const slot = reserveClipboard();
-  tab = await activeTab(tab);
-  if (!tab?.id) return slot.release();
   try {
-    found ??= await askTab(tab.id, { type: "cosmos-copy:target" });
+    tab = await withLimit(activeTab(tab), "The tab lookup");
+    if (!tab?.id) return;
+    found ??= await withLimit(askTab(tab.id, { type: "cosmos-copy:target" }), "The page");
     if (found.error) throw new Error(found.error);
     toast(tab.id, "Copying…");
 
     const elementId = found.elementId;
-    const media = elementId ? await cosmos.media(elementId) : found.media;
+    const media = elementId ? await withLimit(cosmos.media(elementId), "Cosmos") : found.media;
     const meta = elementId ? { pageUrl: `https://www.cosmos.so/e/${elementId}` } : { pageUrl: tab.url };
     const prefs = await settings();
     // Copy and keep at the same time: the clipboard does not wait for Cosmos.
@@ -154,7 +166,7 @@ async function copyReference(tab, found, add = false) {
   } catch (err) {
     const msg = String(err?.message ?? err);
     const hint = msg.includes("native messaging host") ? " Run install.sh in cosmos-copy." : "";
-    toast(tab.id, `Cosmos Copy: ${msg}${hint}`, true);
+    if (tab?.id) toast(tab.id, `Cosmos Copy: ${msg}${hint}`, true);
     console.error("Cosmos Copy", err);
   } finally {
     slot.release(); // Also when a lookup failed before the copy.
