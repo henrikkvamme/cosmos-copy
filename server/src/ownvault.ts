@@ -51,6 +51,10 @@ const VIDEO_TYPES: Record<string, { ext: string; mime: string }> = {
   mov: { ext: "mov", mime: "video/quicktime" },
 };
 
+const MAX_WORKING = 2;
+const MAX_WAITING = 16;
+const MAX_ALIASES = 50;
+
 export interface OwnItem {
   id: string;
   kind: "image" | "video";
@@ -74,6 +78,8 @@ export interface OwnItem {
   /** Written by an agent that looked at the image. */
   description?: string;
   tags?: string[];
+  /** Ids of later copies of the same bytes. Their labels are in the user's clipboard, so they must resolve. */
+  aliases?: string[];
 }
 
 interface ItemsFile {
@@ -176,6 +182,8 @@ export class OwnVault {
   private readonly root: string;
   private readonly files = new Map<string, ItemsFile>();
   private readonly queues = new Map<string, Promise<unknown>>();
+  private working = 0;
+  private readonly waiting: Array<() => void> = [];
   /** False when ffmpeg is missing: videos are then refused. */
   ffmpeg = process.env.FFMPEG_PATH || "ffmpeg";
 
@@ -253,7 +261,7 @@ export class OwnVault {
   }
 
   async get(owner: string, id: string): Promise<OwnItem | undefined> {
-    return (await this.load(owner)).items.find((item) => item.id === id);
+    return (await this.load(owner)).items.find((item) => item.id === id || item.aliases?.includes(id));
   }
 
   async byKey(owner: string, fileKey: string): Promise<OwnItem | undefined> {
@@ -265,7 +273,25 @@ export class OwnVault {
    * Takes a finished upload (a temporary file) into the vault. The temporary file is always gone
    * after the call. The same bytes a second time return the item that exists.
    */
-  async add(owner: string, meta: UploadMeta, temporary: string): Promise<{ item: OwnItem; existed: boolean }> {
+  async add(owner: string, meta: UploadMeta, temporary: string, stillOwner: () => boolean = () => true): Promise<{ item: OwnItem; existed: boolean }> {
+    // Decoding costs memory and CPU: a few at a time, and a short line.
+    if (this.working >= MAX_WORKING) {
+      if (this.waiting.length >= MAX_WAITING) {
+        await unlink(temporary).catch(() => undefined);
+        throw new VaultError(503, "The server is busy. Try again in a moment.");
+      }
+      await new Promise<void>((resolve) => this.waiting.push(resolve));
+    } else this.working += 1;
+    try {
+      return await this.take(owner, meta, temporary, stillOwner);
+    } finally {
+      const next = this.waiting.shift();
+      if (next) next();
+      else this.working -= 1;
+    }
+  }
+
+  private async take(owner: string, meta: UploadMeta, temporary: string, stillOwner: () => boolean): Promise<{ item: OwnItem; existed: boolean }> {
     try {
       const { size } = await stat(temporary);
       const limit = meta.kind === "video" ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
@@ -292,13 +318,17 @@ export class OwnVault {
         } else {
           type = videoType(await readHead(temporary, 16));
           if (!type) throw new VaultError(415, "The file is not a video that the vault keeps (MP4, WebM, MOV).");
+          // The file comes from another site. ffmpeg reads this one local file with the demuxer of its
+          // type, and no network or second input: a playlist or a reference to another file fails.
+          const input = ["-v", "error", "-nostdin", "-y", "-protocol_whitelist", "file", "-f", type.ext === "webm" ? "matroska" : "mov"];
+          const output = ["-map", "0:v:0", "-frames:v", "1", "-q:v", "3", "-f", "image2"];
           const frame = `${temporary}.frame.jpg`;
           try {
             // The first frame at or after 0.5 s, else the first frame of a shorter clip.
-            await run(this.ffmpeg, ["-v", "error", "-nostdin", "-y", "-ss", "0.5", "-i", temporary, "-frames:v", "1", "-q:v", "3", frame], FFMPEG_TIMEOUT_MS).catch(() =>
-              run(this.ffmpeg, ["-v", "error", "-nostdin", "-y", "-i", temporary, "-frames:v", "1", "-q:v", "3", frame], FFMPEG_TIMEOUT_MS),
+            await run(this.ffmpeg, [...input, "-ss", "0.5", "-i", temporary, ...output, frame], FFMPEG_TIMEOUT_MS).catch(() =>
+              run(this.ffmpeg, [...input, "-i", temporary, ...output, frame], FFMPEG_TIMEOUT_MS),
             );
-            const info = await sharp(frame).metadata();
+            const info = await sharp(frame, { limitInputPixels: 120_000_000 }).metadata();
             width = info.width;
             height = info.height;
             await makeThumb(frame, thumbTemporary);
@@ -313,10 +343,22 @@ export class OwnVault {
         }
 
         return await this.queue(owner, async () => {
+          // The upload took time. The browser can be unlinked and the account deleted since the key check.
+          if (!stillOwner()) throw new VaultError(401, "Missing or wrong device key.");
           const file = await this.load(owner);
+          const used = file.items.some((item) => item.id === meta.id || item.aliases?.includes(meta.id));
           const same = file.items.find((item) => item.sha256 === sha256);
-          if (same) return { item: same, existed: true };
-          if (file.items.some((item) => item.id === meta.id)) throw new VaultError(409, "A reference with this id exists.");
+          if (same) {
+            if (same.id === meta.id || same.aliases?.includes(meta.id)) return { item: same, existed: true };
+            if (used) throw new VaultError(409, "A reference with this id exists.");
+            // The copy in the clipboard carries the new id: keep it as a second name of the item.
+            const named: OwnItem = { ...same, aliases: [...(same.aliases ?? []), meta.id].slice(-MAX_ALIASES) };
+            const next: ItemsFile = { version: 1, items: file.items.map((item) => (item === same ? named : item)) };
+            await this.write(owner, next);
+            this.files.set(owner, next);
+            return { item: named, existed: true };
+          }
+          if (used) throw new VaultError(409, "A reference with this id exists.");
           if (file.items.length >= MAX_ITEMS) throw new VaultError(507, `The vault is full (${MAX_ITEMS} references). Delete some on the vault page.`);
           if (file.items.reduce((sum, item) => sum + item.bytes, 0) + size > MAX_OWNER_BYTES) {
             throw new VaultError(507, "The vault is full (5 GB). Delete some references on the vault page.");
@@ -375,7 +417,7 @@ export class OwnVault {
   describe(owner: string, id: string, description: string, tags: string[]): Promise<boolean> {
     return this.queue(owner, async () => {
       const file = await this.load(owner);
-      const index = file.items.findIndex((item) => item.id === id);
+      const index = file.items.findIndex((item) => item.id === id || item.aliases?.includes(id));
       const text = cleanText(description, MAX_DESCRIPTION);
       if (index < 0 || !text) return false;
       const cleanTags = [...new Set(tags.map((tag) => cleanText(tag, MAX_TAG)?.toLowerCase()).filter((tag): tag is string => Boolean(tag)))].slice(0, MAX_TAGS);
@@ -394,7 +436,7 @@ export class OwnVault {
       const file = await this.load(owner);
       const item = file.items.find((entry) => entry.id === id);
       if (!item) return false;
-      const next: ItemsFile = { version: 1, items: file.items.filter((entry) => entry.id !== id) };
+      const next: ItemsFile = { version: 1, items: file.items.filter((entry) => entry !== item) };
       await this.write(owner, next);
       this.files.set(owner, next);
       await unlink(this.mediaPath(owner, item)).catch(() => undefined);

@@ -360,6 +360,9 @@ async function saveToCollection(userId: string, elementId: string, collection: V
 // ---------------------------------------------------------------------------------------------
 // Cursors
 
+/** The most references from other sites in one search result. */
+const OWN_MATCH_LIMIT = 10;
+
 export interface ListCursor {
   o: number;
   c?: string;
@@ -671,13 +674,17 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
       // References from other sites: a word match on what the agent and the page said about them.
       // They are in the first page of a search over the whole vault.
       const items = term && !collection && !cursor ? await ownItems().catch(() => []) : [];
-      const ownMatches = items
+      const allOwnMatches = items
         .filter((item) => !kind || item.kind === kind)
         .map((item) => ({ item, score: matchScore(item, term) }))
         .filter((match) => match.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10)
-        .map((match) => asOwn(match.item));
+        .sort((a, b) => b.score - a.score);
+      const ownMatches = allOwnMatches.slice(0, OWN_MATCH_LIMIT).map((match) => asOwn(match.item));
+      // The two sources rank in different ways, so they do not share a cursor. The rest is named, not hidden.
+      const ownRest =
+        allOwnMatches.length > ownMatches.length
+          ? `\n\n${allOwnMatches.length - ownMatches.length} more references from other sites match. Use more exact words to find them.`
+          : "";
       if (!ctx.token() && hasOwn && !collection) {
         try {
           if (!term) {
@@ -694,7 +701,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
             (ownMatches.length === 0
               ? `No references from other sites match "${term}". Try other words, or call list_references.`
               : `${ownMatches.length} references for "${term}", best match first. Call get_reference with an id to see one.\n\n${ownMatches.map(compactText).join("\n\n")}`) +
-            `\n\n${NO_COSMOS}${describeNote(items)}`;
+            `${ownRest}\n\n${NO_COSMOS}${describeNote(items)}`;
           return { content: [{ type: "text", text }], structuredContent: { query: term, returned: ownMatches.length, nextCursor: null, references: ownMatches } };
         } catch (error) {
           return failure(error, "search the references");
@@ -741,6 +748,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
           found.length === 0
             ? `No references in ${scope} match "${term}". Try other words, or call list_references.`
             : `${found.length} references in ${scope} for "${term}", best match first${ownMatches.length ? " (the references from other sites come first)" : ""}. Call get_reference with an id to see one.\n\n${found.map(compactText).join("\n\n")}`;
+        text += ownRest;
         if (result.nextCursor) text += `\n\nnextCursor: ${result.nextCursor}`;
         text += describeNote(items);
         return {

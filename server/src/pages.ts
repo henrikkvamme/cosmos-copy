@@ -128,7 +128,7 @@ export class Pages {
 
   /** The path as it may be logged: ids replaced by ":id". */
   static logPath(path: string): string {
-    return path.replace(/^\/(p|v|u)\/[^/]+/, "/$1/:id");
+    return path.replace(/^\/(p|v|u)\/[^/]+/, "/$1/:id").replace(/^\/vault\/(f|t)\/.*/, "/vault/$1/:key");
   }
 
   /** Handles a page route. Returns false when the path is not one. */

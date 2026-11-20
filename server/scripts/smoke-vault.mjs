@@ -97,6 +97,7 @@ try {
   const blue = await picture(20, 40, 200, 2400, 1200).jpeg().toBuffer();
   const idRed = newId();
   const idBlue = newId();
+  const idRedAgain = newId();
 
   // ---- Upload: who may, and what ----
   {
@@ -125,8 +126,10 @@ try {
 
     const first = await upload(key, { id: idRed, kind: "image", pageUrl: "https://dribbble.com/shots/1-red-landing", pageTitle: "Red landing page", alt: "hero section", sourceUrl: "javascript:alert(1)" }, red);
     check("upload of a PNG works", first.status === 200 && first.body.id === idRed && first.body.existed === false, first);
-    const again = await upload(key, { id: newId(), kind: "image", pageUrl: "https://example.com/" }, red);
+    const again = await upload(key, { id: idRedAgain, kind: "image", pageUrl: "https://example.com/" }, red);
     check("the same bytes again return the first item", again.status === 200 && again.body.id === idRed && again.body.existed === true, again);
+    const aliasClash = await upload(key, { id: idRedAgain, kind: "image" }, blue);
+    check("the id of a repeated copy is used too", aliasClash.status === 409, aliasClash);
     const clash = await upload(key, { id: idRed, kind: "image" }, blue);
     check("another file with a used id gives 409", clash.status === 409, clash);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -196,6 +199,10 @@ try {
     check("get_reference shows an own item with its image", !got.isError && imagesOf(got).length === 1 && /awwwards\.com/.test(textOf(got)) && /has no description/.test(textOf(got)), textOf(got));
     const byPrefix = await call(client, "get_reference", { id: `tasteref-${idRed}` });
     check("get_reference accepts the tasteref- form", !byPrefix.isError && byPrefix.structuredContent.id === idRed, textOf(byPrefix));
+    const byAlias = await call(client, "get_reference", { id: idRedAgain });
+    check("the id of a repeated copy resolves to the first item", !byAlias.isError && byAlias.structuredContent.id === idRed, textOf(byAlias));
+    const aliasLabel = await call(client, "note_references", { task: "smoke alias", pasted: [`tasteref ${idRedAgain}-${checkDigits(idRedAgain)} · call note_references`] });
+    check("note_references accepts the label of a repeated copy", !aliasLabel.isError, textOf(aliasLabel));
     const unknown = await call(client, "get_reference", { id: newId() });
     check("get_reference of an unknown own id is an error", unknown.isError === true, textOf(unknown));
 
@@ -298,6 +305,8 @@ try {
     check("with no Cosmos token, search gives the own items", !found.isError && idsOf(found)[0] === idRed, textOf(found));
     const got = await call(offline, "get_reference", { id: idRed });
     check("with no Cosmos token, get_reference of an own item works", !got.isError && imagesOf(got).length === 1, textOf(got));
+    const noted = await call(offline, "note_references", { task: "smoke offline", pasted: [`tasteref ${idBlue}-${checkDigits(idBlue)}`] });
+    check("with no Cosmos token, note_references takes a new own label", !noted.isError && !/not recorded|could not/i.test(textOf(noted)), textOf(noted));
     const inCollection = await call(offline, "list_references", { collection: "Agent references" });
     check("with no Cosmos token, a collection gives the renew hint", inCollection.isError === true && /renew/i.test(textOf(inCollection)), textOf(inCollection));
     await offline.close();
@@ -318,6 +327,7 @@ try {
   }
 
   check("the server log holds no device key", !output.includes(key));
+  check("the server log holds no file key", !output.includes(redItem.fileKey) && !output.includes(blueItem.fileKey) && /\/vault\/f\/:key/.test(output));
 } catch (error) {
   failures += 1;
   console.log(`FAIL the test stopped: ${error?.stack ?? error}`);

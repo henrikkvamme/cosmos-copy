@@ -127,7 +127,9 @@ export class VaultRoutes {
       return json(res, 400, { error: "The upload did not finish." }, { connection: "close" });
     }
     try {
-      const { item, existed } = await this.vault.add(account.userId, meta, temporary);
+      const username = header(req, "x-username");
+      const key = header(req, "x-device-key");
+      const { item, existed } = await this.vault.add(account.userId, meta, temporary, () => this.store.authenticate(username, key, this.log)?.userId === account.userId);
       this.log({ event: "vault_saved", kind: item.kind, bytes: item.bytes, existed });
       json(res, 200, { ok: true, id: item.id, existed });
     } catch (error) {
