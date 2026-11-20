@@ -239,14 +239,30 @@ export class PickStore {
       for (const [from, to] of moves) {
         if (from === to) continue;
         const exists = (path: string) => stat(path).then(() => true, () => false);
-        if (!(await exists(from)) || (await exists(to))) continue;
-        await rename(from, to).then(
-          () => log({ event: "picks_owner_moved" }),
-          (error: unknown) => {
-            complete = false;
-            log({ level: "error", event: "picks_owner_move_failed", error: (error as Error).message });
-          },
-        );
+        if (!(await exists(from))) continue;
+        try {
+          // The target exists when an earlier move failed and new data came in under the user id.
+          // Then the old data goes into the target: nothing is left under the username.
+          if (!(await exists(to))) await rename(from, to);
+          else if ((await stat(from)).isDirectory()) {
+            for (const file of await readdir(from)) {
+              if (await exists(join(to, file))) await rm(join(from, file), { force: true });
+              else await rename(join(from, file), join(to, file));
+            }
+            await rm(from, { recursive: true });
+          } else {
+            const newer = JSON.parse(await readFile(to, "utf8")) as { entries?: unknown[] };
+            const older = JSON.parse(await readFile(from, "utf8")) as { entries?: unknown[] };
+            if (!Array.isArray(newer.entries)) throw new Error("unknown format");
+            newer.entries.push(...(Array.isArray(older.entries) ? older.entries : []));
+            await writeFileAtomic(to, JSON.stringify(newer) + "\n");
+            await rm(from);
+          }
+          log({ event: "picks_owner_moved" });
+        } catch (error) {
+          complete = false;
+          log({ level: "error", event: "picks_owner_move_failed", error: (error as Error).message });
+        }
       }
     }
     return complete;

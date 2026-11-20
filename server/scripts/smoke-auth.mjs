@@ -365,7 +365,14 @@ try {
     const quiet = () => undefined;
     await writeFile(join(dir, "links.json"), JSON.stringify({ version: 2, legacy: { olduser: "77" }, accounts: { 77: { username: "olduser", userId: "77", devices: [{ keyHash: sha("k"), name: "B", linkedAt: "2026-11-01T10:00:00.000Z", lastSeen: "2026-11-01T10:00:00.000Z" }], users: [] } } }), { mode: 0o600 });
     await mkdir(join(dir, "history"), { recursive: true });
-    await writeFile(join(dir, "history", "olduser.json"), "{}");
+    // The history and one image already exist under the user id, from after the failed move.
+    const entry = (task) => ({ task, at: "2026-11-01T10:00:00.000Z", picked: [], passed: [] });
+    await writeFile(join(dir, "history", "olduser.json"), JSON.stringify({ version: 1, entries: [entry("old")] }));
+    await writeFile(join(dir, "history", "77.json"), JSON.stringify({ version: 1, entries: [entry("new")] }));
+    await mkdir(join(dir, "history-images", "olduser"), { recursive: true });
+    await mkdir(join(dir, "history-images", "77"), { recursive: true });
+    await writeFile(join(dir, "history-images", "olduser", "old.webp"), "o");
+    await writeFile(join(dir, "history-images", "77", "new.webp"), "n");
     await writeFile(join(dir, "picks.json"), JSON.stringify({ version: 1, sessions: {}, boards: { abc: { username: "olduser", createdAt: new Date().toISOString(), task: "t", variants: [] } } }));
     const links = new LinkStore(dir);
     await links.load(quiet);
@@ -375,6 +382,8 @@ try {
     const after = JSON.parse(await readFile(join(dir, "links.json"), "utf8"));
     const board = JSON.parse(await readFile(join(dir, "picks.json"), "utf8")).boards.abc;
     check("resume: a cut-off move is finished at the next start", complete && (await exists(join(dir, "history", "77.json"))) && !(await exists(join(dir, "history", "olduser.json"))) && after.legacy === undefined, { complete, legacy: after.legacy });
+    const merged = JSON.parse(await readFile(join(dir, "history", "77.json"), "utf8")).entries.map((e) => e.task);
+    check("resume: old history and images go into the data that is already under the user id", JSON.stringify(merged) === '["new","old"]' && (await exists(join(dir, "history-images", "77", "old.webp"))) && (await exists(join(dir, "history-images", "77", "new.webp"))) && !(await exists(join(dir, "history-images", "olduser"))), merged);
     check("resume: a board of the username gets the user id as owner", board?.owner === "77" && board.username === undefined, board);
 
     // A device links to an account that the clean-up of the same call deleted.
