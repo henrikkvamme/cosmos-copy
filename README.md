@@ -1,3 +1,5 @@
+<img src="docs/brand/tasteref-mark.svg" width="64" height="64" alt="">
+
 # TasteRef
 
 Show agents what you like, from any site.

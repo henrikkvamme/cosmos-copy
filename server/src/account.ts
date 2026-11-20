@@ -31,7 +31,7 @@ const DEVICE_KEY_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 const SECURITY_HEADERS: Record<string, string> = {
-  "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "referrer-policy": "no-referrer",
   "x-content-type-options": "nosniff",
   "x-robots-tag": "noindex, nofollow",

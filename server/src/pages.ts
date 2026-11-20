@@ -5,7 +5,7 @@
 //   PUT  /p/<id>/state        {picked, hidden}       GET  /v/<id>/img/<n>  screenshot n
 //   POST /p/<id>/more         "More like these"      PUT  /u/<upload id>/<n>  upload screenshot n
 //   POST /p/<id>/done         Done
-//   GET  /assets/<file>       page scripts and styles
+//   GET  /assets/<file>       page scripts, styles and icons
 //
 // The ids are bearer secrets. An unknown id gives 404, and many from one IP give 429. Never log an id.
 
@@ -33,6 +33,9 @@ const ASSETS: Record<string, string> = {
   "picker.js": "text/javascript; charset=utf-8",
   "canvas.js": "text/javascript; charset=utf-8",
   "pages.css": "text/css; charset=utf-8",
+  "favicon.svg": "image/svg+xml",
+  "favicon-32.png": "image/png",
+  "apple-touch-icon.png": "image/png",
 };
 const PAGE_FILES = { picker: "picker.html", canvas: "canvas.html" } as const;
 
@@ -130,7 +133,7 @@ export class Pages {
 
   /** Handles a page route. Returns false when the path is not one. */
   async handle(req: IncomingMessage, res: ServerResponse, path: string, ip: string): Promise<boolean> {
-    const asset = /^\/assets\/([a-z]+\.(?:js|css))$/.exec(path);
+    const asset = /^\/assets\/([a-z0-9-]+\.(?:js|css|svg|png))$/.exec(path);
     if (asset) {
       const name = asset[1]!;
       const type = ASSETS[name];

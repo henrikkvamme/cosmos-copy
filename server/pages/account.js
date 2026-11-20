@@ -16,7 +16,8 @@
   }
 
   function show(...children) {
-    view.replaceChildren(...children.flat().filter(Boolean));
+    const brand = el("div", { class: "brand" }, el("img", { src: "/assets/favicon.svg", alt: "" }), "TasteRef");
+    view.replaceChildren(brand, ...children.flat().filter(Boolean));
   }
 
   function foot() {

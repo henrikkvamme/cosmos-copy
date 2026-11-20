@@ -5,7 +5,8 @@
   --border: #2a2a2f;
   --text: #ededee;
   --muted: #8a8a92;
-  --accent: #4c8dff;
+  --accent: #c6e33a;
+  --on-accent: #111113;
   --bad: #e5484d;
   --r: 10px;
   color-scheme: dark;
@@ -18,8 +19,8 @@ h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em
 .sub { color: var(--muted); margin: 0 0 22px; }
 .btn { padding: 7px 14px; border-radius: 9px; background: var(--surface); color: var(--text); white-space: nowrap; }
 .btn:hover:not(:disabled) { background: #26262b; }
-.btn.primary { background: var(--accent); color: #fff; }
-.btn.primary:hover:not(:disabled) { background: #5b97ff; }
+.btn.primary { background: var(--accent); color: var(--on-accent); font-weight: 500; }
+.btn.primary:hover:not(:disabled) { background: #d3ec5c; }
 .btn:disabled { opacity: 0.4; cursor: default; }
 .btn[aria-busy="true"] { cursor: progress; }
 .message { max-width: 520px; margin: 18vh auto 0; padding: 0 24px; }
@@ -33,7 +34,7 @@ h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em
 .tile img.loaded { opacity: 1; }
 .tile.picked { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tile .check { position: absolute; right: 8px; top: 8px; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); display: none; align-items: center; justify-content: center; }
-.tile .check svg { width: 12px; height: 12px; stroke: #fff; stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.tile .check svg { width: 12px; height: 12px; stroke: var(--on-accent); stroke-width: 2.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .tile.picked .check { display: flex; }
 .tile .play { position: absolute; left: 8px; bottom: 8px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; }
 .tile .play::after { content: ""; margin-left: 2px; border-left: 7px solid #fff; border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; }
@@ -90,4 +91,6 @@ h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em
 .card a { color: var(--text); }
 .card .foot { margin-top: 28px; font-size: 12px; }
 .card .foot a { color: var(--muted); }
+.card .brand { display: flex; align-items: center; gap: 10px; margin: 0 0 28px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.card .brand img { width: 24px; height: 24px; }
 .card code + h2 { margin-top: 14px; }
