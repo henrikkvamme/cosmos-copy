@@ -208,6 +208,13 @@ try {
     check("landing: the page holds no inline script or style", !/<script(?![^>]*\bsrc=)|<style|\sstyle=|\son[a-z]+=/i.test(body));
     const text = await fetch(`${base}/`, { headers: { accept: "*/*" } });
     check("landing: a script gets the usage text", (text.headers.get("content-type") ?? "").startsWith("text/plain") && (await text.text()).includes("POST /mcp"));
+    const refused = await fetch(`${base}/`, { headers: { accept: "text/html;q=0, text/plain" } });
+    check("landing: text/html with q=0 gets the usage text", (refused.headers.get("content-type") ?? "").startsWith("text/plain"));
+    const film = files.find((file) => file.endsWith(".mp4"));
+    const part = await fetch(base + film, { headers: { range: "bytes=0-1" } });
+    check("landing: a byte range of the video gives 206", part.status === 206 && part.headers.get("content-range")?.startsWith("bytes 0-1/") && (await part.arrayBuffer()).byteLength === 2, part.status);
+    check("landing: a range past the end gives 416", (await fetch(base + film, { headers: { range: "bytes=999999999-" } })).status === 416);
+    check("landing: HEAD ignores a range", (await fetch(base + film, { method: "HEAD", headers: { range: "bytes=0-1" } })).status === 200);
     check("landing: an unknown file gives 404", (await fetch(`${base}/assets/landing/nope.css`)).status === 404);
     check("landing: the other pages keep noindex", (await fetch(`${base}/assets/pages.css`)).headers.get("x-robots-tag") === "noindex, nofollow");
   }

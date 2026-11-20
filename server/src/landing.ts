@@ -35,7 +35,12 @@ export class Landing {
 
   /** True when the client asks for a page. A script or curl gets the plain usage text. */
   static wantsHtml(req: IncomingMessage): boolean {
-    return /\btext\/html\b/i.test(req.headers.accept ?? "");
+    // A client that names text/html with q=0 refuses a page.
+    return (req.headers.accept ?? "").split(",").some((range) => {
+      const [type, ...params] = range.split(";").map((part) => part.trim().toLowerCase());
+      const q = params.find((param) => param.startsWith("q="));
+      return type === "text/html" && (!q || Number(q.slice(2)) > 0);
+    });
   }
 
   page(res: ServerResponse): void {
@@ -56,7 +61,8 @@ export class Landing {
     const headers = { "content-type": file.type, "cache-control": media ? "public, max-age=86400" : "no-cache", "accept-ranges": "bytes", ...HEADERS };
     const size = file.body.byteLength;
     // Safari plays a video only from a server that answers a byte range request.
-    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+    // A range applies to GET only (RFC 9110, 14.2).
+    const range = req.method === "GET" ? /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "") : null;
     if (range && (range[1] || range[2])) {
       const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
       const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
@@ -65,7 +71,7 @@ export class Landing {
         return true;
       }
       const part = file.body.subarray(start, end + 1);
-      res.writeHead(206, { ...headers, "content-length": part.byteLength, "content-range": `bytes ${start}-${end}/${size}` }).end(req.method === "HEAD" ? undefined : part);
+      res.writeHead(206, { ...headers, "content-length": part.byteLength, "content-range": `bytes ${start}-${end}/${size}` }).end(part);
       return true;
     }
     res.writeHead(200, { ...headers, "content-length": size }).end(req.method === "HEAD" ? undefined : file.body);

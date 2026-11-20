@@ -76,7 +76,7 @@
     addEventListener("scroll", request, { passive: true });
     addEventListener("resize", measure);
     addEventListener("load", measure);
-    new ResizeObserver(measure).observe(document.body);
+    if ("ResizeObserver" in window) new ResizeObserver(measure).observe(document.body);
     if (fine) {
       addEventListener("pointermove", (event) => {
         pointer.tx = (event.clientX / innerWidth) * 2 - 1;
