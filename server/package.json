@@ -5,16 +5,19 @@
   "description": "MCP server for Cosmos (cosmos.so): public collections without login, and the vault of a linked account.",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke": "npm run build && node scripts/smoke.mjs"
+    "smoke": "npm run build && node scripts/smoke.mjs && node scripts/smoke-auth.mjs"
   },
   "dependencies": {
+    "@better-auth/cimd": "^1.7.26",
+    "@better-auth/mcp": "^1.7.26",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "better-auth": "^1.7.26",
     "sharp": "^0.35.5",
     "zod": "^4.6.7"
   },

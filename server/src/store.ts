@@ -1,4 +1,8 @@
-// Linked Cosmos accounts: one bearer token per account and the devices (browsers) that relay it.
+// Linked Cosmos accounts: one bearer token per account, the devices (browsers) that relay it, and
+// the signed-in users (Better Auth user ids) that may use it.
+//
+// An account is keyed by the Cosmos user id. Cosmos lets a person change the username, and a free
+// username can go to another person, so the username is never an identity.
 //
 // The data is one JSON file (DATA_DIR/links.json, mode 600). The process keeps it in memory and
 // writes the whole file again after each change: to a temporary file first, then a rename, so a
@@ -26,17 +30,31 @@ export interface LinkedToken {
 }
 
 export interface Account {
+  /** The present Cosmos username. Display and the key route only. */
   username: string;
+  /** The Cosmos user id: the identity of the account and the owner key of its data. */
   userId: string;
   token?: LinkedToken;
   devices: Device[];
+  /** The signed-in users (Better Auth user ids) that linked this account. */
+  users: string[];
 }
 
 interface FileData {
-  version: 1;
-  /** Key: the username in lower case. */
+  version: 2;
+  /** Key: the Cosmos user id. */
   accounts: Record<string, Account>;
 }
+
+/** A connect ticket: the right to link the account of one device to the user who confirms. */
+interface Ticket {
+  keyHash: string;
+  userId: string;
+  expires: number;
+}
+
+const TICKET_TTL_MS = 10 * 60_000;
+const MAX_TICKETS = 1_000;
 
 export const MAX_DEVICES = 20;
 /** A token that expires within this margin counts as expired. */
@@ -75,8 +93,17 @@ export class LinkStore {
   readonly file: string;
   /** False when the data directory cannot be written. /link then answers 503. */
   writable = false;
-  private data: FileData = { version: 1, accounts: {} };
+  private data: FileData = { version: 2, accounts: {} };
   private writes: Promise<void> = Promise.resolve();
+  /** Connect tickets by the SHA-256 hash of the ticket. In memory only: a restart ends them. */
+  private readonly tickets = new Map<string, Ticket>();
+  /**
+   * Username (lower case) to Cosmos user id for the accounts of a version 1 file. The pick data of
+   * such an account was stored under the username and must move to the user id.
+   */
+  legacyOwners = new Map<string, string>();
+  /** Called with the Cosmos user id of each account that was deleted, so its other data can go. */
+  onAccountDeleted: (userId: string) => void = () => undefined;
 
   constructor(readonly dir: string) {
     this.file = join(dir, "links.json");
@@ -100,15 +127,23 @@ export class LinkStore {
       return;
     }
     try {
-      const parsed = JSON.parse(text) as FileData;
-      if (parsed?.version !== 1 || typeof parsed.accounts !== "object" || parsed.accounts === null) {
+      const parsed = JSON.parse(text) as { version?: unknown; accounts?: Record<string, Account> };
+      if ((parsed?.version !== 1 && parsed?.version !== 2) || typeof parsed.accounts !== "object" || parsed.accounts === null) {
         throw new Error("unknown format");
       }
+      const accounts: Record<string, Account> = {};
       for (const account of Object.values(parsed.accounts)) {
-        if (typeof account.username !== "string" || !Array.isArray(account.devices)) throw new Error("bad account");
+        if (typeof account.username !== "string" || typeof account.userId !== "string" || !account.userId || !Array.isArray(account.devices)) {
+          throw new Error("bad account");
+        }
+        if (accounts[account.userId]) throw new Error("two accounts with one user id");
+        accounts[account.userId] = { ...account, users: Array.isArray(account.users) ? account.users : [] };
+        // Version 1 kept the pick data under the username.
+        if (parsed.version === 1) this.legacyOwners.set(account.username.toLowerCase(), account.userId);
       }
-      this.data = parsed;
-      log({ event: "store_loaded", accounts: Object.keys(parsed.accounts).length });
+      this.data = { version: 2, accounts };
+      log({ event: "store_loaded", accounts: Object.keys(accounts).length, version: parsed.version });
+      if (parsed.version === 1 && this.writable) await this.save();
     } catch (error) {
       // A broken file only means that the devices must link again. Keep it aside for a look.
       const aside = `${this.file}.broken-${Date.now()}`;
@@ -132,8 +167,14 @@ export class LinkStore {
     this.save().catch((error: unknown) => log({ level: "error", event: "store_write_failed", error: (error as Error).message }));
   }
 
-  account(username: string): Account | undefined {
-    return this.data.accounts[username.toLowerCase()];
+  /** The account of a Cosmos user id. */
+  account(userId: string): Account | undefined {
+    return this.data.accounts[userId];
+  }
+
+  /** The account that a signed-in user linked. */
+  accountOfUser(authUserId: string): Account | undefined {
+    return Object.values(this.data.accounts).find((account) => account.users.includes(authUserId));
   }
 
   /**
@@ -142,12 +183,22 @@ export class LinkStore {
    */
   authenticate(username: string, key: string, log: (fields: Record<string, unknown>) => void): Account | undefined {
     const keyHash = hashKey(key);
-    const account = this.account(username);
+    const name = username.toLowerCase();
+    let account: Account | undefined;
     let found: Device | undefined;
-    for (const device of account?.devices ?? []) {
-      if (sameHash(device.keyHash, keyHash) && !found) found = device;
+    let compared = false;
+    // A device key belongs to one account. The username in the URL must be the present username of that account.
+    for (const candidate of Object.values(this.data.accounts)) {
+      if (candidate.username.toLowerCase() !== name) continue;
+      for (const device of candidate.devices) {
+        compared = true;
+        if (sameHash(device.keyHash, keyHash) && !found) {
+          found = device;
+          account = candidate;
+        }
+      }
     }
-    if (!account) sameHash(DUMMY_HASH, keyHash);
+    if (!compared) sameHash(DUMMY_HASH, keyHash);
     if (!account || !found) return undefined;
     if (Date.now() - Date.parse(found.lastSeen) > LAST_SEEN_INTERVAL_MS) {
       found.lastSeen = new Date().toISOString();
@@ -157,8 +208,8 @@ export class LinkStore {
   }
 
   /** The token of an account. An expired token is deleted here. */
-  token(username: string, log: (fields: Record<string, unknown>) => void): LinkedToken | undefined {
-    const account = this.account(username);
+  token(userId: string, log: (fields: Record<string, unknown>) => void): LinkedToken | undefined {
+    const account = this.account(userId);
     if (!account?.token) return undefined;
     if (isExpired(account.token)) {
       delete account.token;
@@ -170,8 +221,8 @@ export class LinkStore {
   }
 
   /** Deletes a token that Cosmos refused, unless a newer token replaced it in the meantime. */
-  dropToken(username: string, token: string, log: (fields: Record<string, unknown>) => void): void {
-    const account = this.account(username);
+  dropToken(userId: string, token: string, log: (fields: Record<string, unknown>) => void): void {
+    const account = this.account(userId);
     if (account?.token?.token !== token) return;
     delete account.token;
     log({ event: "token_refused", username: account.username });
@@ -184,7 +235,7 @@ export class LinkStore {
    * The token replaces the stored one only when it expires later.
    */
   link(input: { username: string; userId: string; token: LinkedToken; deviceKey: string; deviceName: string }): LinkResult {
-    const key = input.username.toLowerCase();
+    const key = input.userId;
     const keyHash = hashKey(input.deviceKey);
     const now = new Date().toISOString();
 
@@ -196,11 +247,10 @@ export class LinkStore {
 
     this.removeDeviceEverywhere(keyHash, key);
     if (!account) {
-      account = { username: input.username, userId: input.userId, devices: [] };
+      account = { username: input.username, userId: input.userId, devices: [], users: [] };
       this.data.accounts[key] = account;
     }
     account.username = input.username;
-    account.userId = input.userId;
 
     if (existing) {
       existing.name = input.deviceName;
@@ -215,9 +265,98 @@ export class LinkStore {
     return { account, deviceAdded: !existing, tokenUpdated };
   }
 
-  /** Removes one device. An account without devices is deleted, with its token. */
+  /** Removes one device. An account with no devices and no users is deleted, with its token. */
   unlink(deviceKey: string): boolean {
     return this.removeDeviceEverywhere(hashKey(deviceKey));
+  }
+
+  // ---- Signed-in users ----
+
+  /** True when the account of a device key has a signed-in user. Undefined when no account has that device. */
+  connected(deviceKey: string): boolean | undefined {
+    const keyHash = hashKey(deviceKey);
+    const account = Object.values(this.data.accounts).find((candidate) => candidate.devices.some((device) => sameHash(device.keyHash, keyHash)));
+    return account ? account.users.length > 0 : undefined;
+  }
+
+  /**
+   * Makes a connect ticket for the account of a device key. The ticket is returned once, and
+   * only its hash is kept. Undefined when no account has that device.
+   */
+  startConnect(deviceKey: string): { ticket: string; username: string } | undefined {
+    const keyHash = hashKey(deviceKey);
+    const account = Object.values(this.data.accounts).find((candidate) => candidate.devices.some((device) => sameHash(device.keyHash, keyHash)));
+    if (!account) return undefined;
+    const now = Date.now();
+    for (const [hash, ticket] of this.tickets) if (ticket.expires <= now) this.tickets.delete(hash);
+    while (this.tickets.size >= MAX_TICKETS) this.tickets.delete(this.tickets.keys().next().value!);
+    const ticket = randomBytes(32).toString("base64url");
+    this.tickets.set(hashKey(ticket), { keyHash, userId: account.userId, expires: now + TICKET_TTL_MS });
+    return { ticket, username: account.username };
+  }
+
+  /** The account a ticket would link, while the ticket is valid and its device is still on that account. */
+  peekConnect(ticket: string): Account | undefined {
+    const stored = this.tickets.get(hashKey(ticket));
+    if (!stored || stored.expires <= Date.now()) return undefined;
+    const account = this.account(stored.userId);
+    return account?.devices.some((device) => sameHash(device.keyHash, stored.keyHash)) ? account : undefined;
+  }
+
+  /**
+   * Uses a ticket: links its account to the user and writes the file. The ticket ends here also
+   * when the write fails, and the link is then taken back. A user has one account: an older
+   * link of the user is removed.
+   */
+  async confirmConnect(ticket: string, authUserId: string): Promise<Account | undefined> {
+    const account = this.peekConnect(ticket);
+    this.tickets.delete(hashKey(ticket));
+    if (!account) return undefined;
+    const before = Object.values(this.data.accounts)
+      .filter((candidate) => candidate.users.includes(authUserId))
+      .map((candidate) => candidate.userId);
+    for (const candidate of Object.values(this.data.accounts)) {
+      if (candidate !== account) candidate.users = candidate.users.filter((id) => id !== authUserId);
+    }
+    if (!account.users.includes(authUserId)) account.users.push(authUserId);
+    try {
+      await this.save();
+    } catch (error) {
+      account.users = account.users.filter((id) => id !== authUserId);
+      for (const id of before) {
+        const old = this.account(id);
+        if (old && !old.users.includes(authUserId)) old.users.push(authUserId);
+      }
+      throw error;
+    }
+    // Only after the write: an account that lost its last user and has no device goes.
+    if (this.dropEmptyAccounts()) await this.save();
+    return account;
+  }
+
+  /** Removes a signed-in user from its account. True when something changed. Save after it. */
+  unbindUser(authUserId: string): boolean {
+    let changed = false;
+    for (const account of Object.values(this.data.accounts)) {
+      if (!account.users.includes(authUserId)) continue;
+      account.users = account.users.filter((id) => id !== authUserId);
+      changed = true;
+    }
+    this.dropEmptyAccounts();
+    return changed;
+  }
+
+  /** Deletes each account with no devices and no users, with its token. */
+  private dropEmptyAccounts(): boolean {
+    let dropped = false;
+    for (const [key, account] of Object.entries(this.data.accounts)) {
+      if (account.devices.length > 0 || account.users.length > 0) continue;
+      delete this.data.accounts[key];
+      for (const [hash, ticket] of this.tickets) if (ticket.userId === account.userId) this.tickets.delete(hash);
+      dropped = true;
+      this.onAccountDeleted(account.userId);
+    }
+    return dropped;
   }
 
   private removeDeviceEverywhere(keyHash: string, exceptAccount?: string): boolean {
@@ -228,8 +367,10 @@ export class LinkStore {
       account.devices = account.devices.filter((device) => !sameHash(device.keyHash, keyHash));
       if (account.devices.length === before) continue;
       removed = true;
-      if (account.devices.length === 0) delete this.data.accounts[key];
     }
+    // A ticket of a removed or moved device ends with it (peekConnect also checks the device).
+    for (const [hash, ticket] of this.tickets) if (sameHash(ticket.keyHash, keyHash) && ticket.userId !== exceptAccount) this.tickets.delete(hash);
+    this.dropEmptyAccounts();
     return removed;
   }
 }

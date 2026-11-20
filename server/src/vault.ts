@@ -461,33 +461,34 @@ function collectionText(collection: VaultCollection): string {
 export function buildVaultInstructions(username: string): string {
   return [
     `This server gives access to the Cosmos (cosmos.so) vault of @${username}: all collections, private ones included.`,
-    "The vault holds Henrik's saved design references: images and videos of UI, motion, layout, type and visual style that he saved as examples of what he likes.",
+    "The vault holds the user's saved design references: images and videos of UI, motion, layout, type and visual style that they saved as examples of what they like.",
     "Use search_references to find saved references by meaning, list_references to see the newest saves, and list_collections to see the collections.",
-    "Use search_cosmos to find new references on all of Cosmos. Use save_reference only when Henrik asks you to save something.",
+    "Use search_cosmos to find new references on all of Cosmos. Use save_reference only when the user asks you to save something.",
     "The list and search tools return text only. Call get_reference with an id to see the image.",
     "",
-    "First look at the images in Henrik's message. An image that he copied with Cosmos Copy has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65 · call note_references\": the reference id and two check digits. The strip is not part of the design.",
-    "A file that he attached with a name such as \"cosmos-1277394779.mp4\" is also a reference he copied: a video has no strip, so give its file name in place of a label.",
-    "When a message has such images or files, call note_references with the task and the labels before you do other work. The call returns at once and needs no answer from Henrik, so make it also when he is away. The images are his picks: do not open a picker, and follow the steps in the result.",
-    "When Henrik says that he does not want a reference, or that he did not like what came of it, call note_references with it in rejected.",
+    "First look at the images in the user's message. An image that they copied with Cosmos Copy has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65 · call note_references\": the reference id and two check digits. The strip is not part of the design.",
+    "A file that they attached with a name such as \"cosmos-1277394779.mp4\" is also a reference they copied: a video has no strip, so give its file name in place of a label.",
+    "When a message has such images or files, call note_references with the task and the labels before you do other work. The call returns at once and needs no answer from the user, so make it also when they are away. The images are their picks: do not open a picker, and follow the steps in the result.",
+    "When the user says that they do not want a reference, or that they did not like what came of it, call note_references with it in rejected.",
     "",
-    "When you design a screen, page or UI for Henrik and he pasted no such image, start from references he picks for that task:",
-    "1. Candidates: call contact_sheet with source history (his earlier picks and passes), then with source vault, and with source cosmos and a query for the task. Choose up to 40 candidates by looking, likely picks first.",
-    "2. Picks: call start_picks with the task and the candidate ids, and give Henrik the link. Then call wait_for_picks until it returns his picks. Never ask Henrik to tell you that he is done: the server tells you.",
+    "When you design a screen, page or UI for the user and they pasted no such image, start from references they pick for that task:",
+    "1. Candidates: call contact_sheet with source history (their earlier picks and passes), then with source vault, and with source cosmos and a query for the task. Choose up to 40 candidates by looking, likely picks first.",
+    "2. Picks: call start_picks with the task and the candidate ids, and give the user the link. Then call wait_for_picks until it returns their picks. Never ask the user to tell you that they are done: the server tells you.",
     "3. Plan, build and show: follow the steps in the wait_for_picks result. At the end, call show_variants.",
     "",
-    "When Henrik accepts a design, call note_result with the canvas link, the variant, the project and the deviations. It keeps the style of the project.",
-    "When Henrik asks for the style of an earlier project, call contact_sheet with source history and that project, and design from its final screenshot and references.",
+    "When the user accepts a design, call note_result with the canvas link, the variant, the project and the deviations. It keeps the style of the project.",
+    "When the user asks for the style of an earlier project, call contact_sheet with source history and that project, and design from its final screenshot and references.",
     "",
-    "Use clear_pick_history only when Henrik asks.",
+    "Use clear_pick_history only when the user asks.",
   ].join("\n");
 }
 
 // ---------------------------------------------------------------------------------------------
 // Server
 
-export function buildVaultServer(ctx: DesignContext): McpServer {
-  const server = new McpServer({ name: "cosmos-vault", version: "0.3.0" }, { instructions: buildVaultInstructions(ctx.username) });
+/** `notice`: instructions for a signed-in user with no linked Cosmos account, in place of the usual ones. */
+export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer {
+  const server = new McpServer({ name: "cosmos-vault", version: "0.3.0" }, { instructions: notice ?? buildVaultInstructions(ctx.username) });
   const kindSchema = z.enum(["image", "video"]).optional().describe("Return only images or only videos (videos include animated GIFs).");
   const collectionSchema = z
     .string()
@@ -618,10 +619,10 @@ export function buildVaultServer(ctx: DesignContext): McpServer {
     {
       title: "Search saved Cosmos references",
       description:
-        `Search the references @${ctx.username} saved on Cosmos (Henrik's design references: UI, motion, layout, ` +
+        `Search the references @${ctx.username} saved on Cosmos (the user's design references: UI, motion, layout, ` +
         "type and visual style). Cosmos ranks the results by meaning, so describe what you look for in plain words, " +
         'such as "dark dashboard with charts" or "playful onboarding animation". Use it when you need visual ' +
-        'inspiration, or to find the reference Henrik mentioned ("like that reference I saved"). With no query it ' +
+        'inspiration, or to find the reference the user mentioned ("like that reference I saved"). With no query it ' +
         "lists the newest saves. Give the nextCursor of a result as cursor to get more. The result is text only: " +
         "call get_reference with an id to see the image.",
       inputSchema: {
@@ -690,7 +691,7 @@ export function buildVaultServer(ctx: DesignContext): McpServer {
       description:
         "Get one Cosmos reference by id, with its metadata and the visual as an image you can see. Use it after " +
         "search_references, list_references or search_cosmos, before you describe a reference or copy its style, and " +
-        "when Henrik gives you a cosmos.so/e/<id> link. For a video you get its thumbnail, and the text gives the MP4 URL.",
+        "when the user gives you a cosmos.so/e/<id> link. For a video you get its thumbnail, and the text gives the MP4 URL.",
       inputSchema: { id: idSchema },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -728,9 +729,9 @@ export function buildVaultServer(ctx: DesignContext): McpServer {
     {
       title: "Search all of Cosmos",
       description:
-        "Search all public elements on Cosmos (cosmos.so), not only Henrik's saves. Cosmos ranks the results by " +
+        "Search all public elements on Cosmos (cosmos.so), not only the user's saves. Cosmos ranks the results by " +
         "meaning, so describe what you look for in plain words. Use it to find new visual references for a design. " +
-        "Save a good one with save_reference only when Henrik asks. Give the nextCursor of a result as cursor to get " +
+        "Save a good one with save_reference only when the user asks. Give the nextCursor of a result as cursor to get " +
         "more. The result is text only: call get_reference with an id to see the image.",
       inputSchema: {
         query: z.string().min(1).max(300).describe("What to find, in plain words."),
@@ -767,7 +768,7 @@ export function buildVaultServer(ctx: DesignContext): McpServer {
     {
       title: "Save a reference to a Cosmos collection",
       description:
-        `Save a Cosmos element to one of the collections of @${ctx.username}. Use it only when Henrik asks you to ` +
+        `Save a Cosmos element to one of the collections of @${ctx.username}. Use it only when the user asks you to ` +
         "save something. The collection must exist: give its name, slug or id from list_collections. This tool never " +
         "makes a new collection. Saving an element that is already in the collection changes nothing.",
       inputSchema: {

@@ -97,7 +97,38 @@ async function loadTray() {
 // Claude Code gives the agent the server's own instructions, so it needs the server only. Codex
 // does not, so other clients get a short rule that names the two tools a task starts with. The
 // tool results carry the rest of the flow. Tested with GPT-6 Luna in Codex on 2026-11-19.
+const RULE = `## Cosmos references
+
+- When an image in the chat has a dark strip at its bottom edge with a label such as \`cosmos 1850854004-65 · call note_references\`, call the tool \`note_references\` of the \`cosmos\` MCP server before other work, with \`task\` (the task in a few words) and \`pasted\` (the labels, such as \`["1850854004-65"]\`). The strip is not part of the design.
+- A file that I attach with a name such as \`cosmos-1277394779.mp4\` is also a reference: a video has no strip. Give its file name in \`pasted\`.
+- When I say that I do not want a reference, call \`note_references\` again with the same \`task\` and the reference in \`rejected\`.
+- When I ask for a new screen, page or UI and gave no such image, call the tool \`contact_sheet\` of the \`cosmos\` MCP server with source \`history\` first. Its result starts a flow where I pick references. Do not build before I picked.
+- Search the tools when they are not listed. Follow the steps in each tool result.`;
+
+// The normal setup: the URL holds no secret, and the client signs in through the browser (OAuth).
 function setupPrompt(url) {
+  return `Set up my Cosmos (cosmos.so) design references as an MCP server.
+
+Server: ${url}
+The server uses OAuth: I sign in with Google in the browser. The URL holds no secret.
+
+1. Add it at user scope with the name "cosmos". If a server with that name exists, replace it.
+   Claude Code: claude mcp add --transport http --scope user cosmos "${url}"
+   Codex: codex mcp add cosmos --url "${url}"
+   Other clients: add a streamable HTTP MCP server with that URL.
+2. Start the sign-in, and tell me to finish it in the browser.
+   Claude Code: claude mcp login cosmos (or I run /mcp and select cosmos)
+   Codex: codex mcp login cosmos
+3. Check that it connects (for example claude mcp list or codex mcp list).
+4. Claude Code is now ready. In Codex and every other client, also add this rule to my user-level instructions (Codex: ~/.codex/AGENTS.md). If the rule is there, replace it.
+
+${RULE}
+
+5. Tell me if I must restart the session to load it.`;
+}
+
+// For a host with no browser: the key in the URL is the login.
+function keyPrompt(url) {
   return `Set up my Cosmos (cosmos.so) design references as an MCP server.
 
 Server: ${url}
@@ -110,13 +141,7 @@ The key in the URL is the login. Keep the URL private: do not print it, log it o
 2. Check that it connects (for example claude mcp list or codex mcp list).
 3. Claude Code is now ready. In Codex and every other client, also add this rule to my user-level instructions (Codex: ~/.codex/AGENTS.md). If the rule is there, replace it.
 
-## Cosmos references
-
-- When an image in the chat has a dark strip at its bottom edge with a label such as \`cosmos 1850854004-65 · call note_references\`, call the tool \`note_references\` of the \`cosmos\` MCP server before other work, with \`task\` (the task in a few words) and \`pasted\` (the labels, such as \`["1850854004-65"]\`). The strip is not part of the design.
-- A file that I attach with a name such as \`cosmos-1277394779.mp4\` is also a reference: a video has no strip. Give its file name in \`pasted\`.
-- When I say that I do not want a reference, call \`note_references\` again with the same \`task\` and the reference in \`rejected\`.
-- When I ask for a new screen, page or UI and gave no such image, call the tool \`contact_sheet\` of the \`cosmos\` MCP server with source \`history\` first. Its result starts a flow where I pick references. Do not build before I picked.
-- Search the tools when they are not listed. Follow the steps in each tool result.
+${RULE}
 
 4. Tell me if I must restart the session to load it.`;
 }
@@ -128,7 +153,7 @@ function showCurrent(current) {
 
 async function loadAgents() {
   try {
-    const { url, link } = await ask({ type: "popup:agents" });
+    const { url, keyUrl, link, connected } = await ask({ type: "popup:agents" });
     const disconnected = link?.reason === "disconnected";
     const pending = link?.reason === "unlink-pending";
     $("renew").hidden = !(link?.reason === "signed-out");
@@ -137,14 +162,30 @@ async function loadAgents() {
     $("unlink").textContent = pending ? "Retry disconnect" : "Disconnect agents on this browser";
     $("copy-prompt").hidden = pending;
     if (pending) status("Disconnect is not finished. Old setup URLs may still work.", true);
-    $("copy-prompt").textContent = disconnected ? "Connect agents again" : "Copy setup prompt";
+    // The step before the prompt: connect a Google account, so agents can sign in with it.
+    const mustConnect = link?.ok && connected === false;
+    $("agents-hint").textContent = mustConnect
+      ? "Connect a Google account first. Your agents then sign in with it, and the setup holds no secret."
+      : "Paste the prompt into any agent. The agent can then search your collections and all of Cosmos, and save to your collections.";
+    $("copy-prompt").textContent = disconnected ? "Connect agents again" : mustConnect ? "Connect account" : "Copy setup prompt";
+    $("copy-key-prompt").hidden = !link?.ok || connected === null;
+    $("copy-key-prompt").onclick = async () => {
+      await navigator.clipboard.writeText(keyPrompt(keyUrl));
+      status("Copied. This URL holds a key: keep it private.");
+    };
     $("copy-prompt").onclick = async () => {
       if (disconnected) {
         await ask({ type: "popup:reconnect" });
         status("Connected with a new key. Copy the setup prompt for your agents.");
         return loadAgents();
       }
-      await navigator.clipboard.writeText(setupPrompt(url));
+      if (mustConnect) {
+        // The page opens in a new tab and the popup closes. The next open shows the new state.
+        await ask({ type: "popup:connect" });
+        return;
+      }
+      // An old server cannot tell if an account is connected: the key URL is then the only way.
+      await navigator.clipboard.writeText(connected === null ? keyPrompt(keyUrl) : setupPrompt(url));
       status(link?.ok ? "Copied. Paste it into your agent." : "Copied. Agents can connect when the link works again.");
     };
     $("copy-prompt").disabled = false;
