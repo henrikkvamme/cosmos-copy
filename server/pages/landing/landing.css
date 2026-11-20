@@ -173,37 +173,17 @@ button.keys:hover kbd { transform: translateY(-1px); }
 @keyframes flash { 0%, 36%, 46%, 100% { filter: none; } 38% { filter: brightness(1.35) saturate(1.15); } }
 @keyframes rise { 0%, 39% { opacity: 0; transform: translate(-50%, 24px) scale(0.96); } 46%, 90% { opacity: 1; transform: translateX(-50%); } 100% { opacity: 0; transform: translateX(-50%); } }
 
-/* The chat box: the one card of steps 2, 3 and 5. */
-.composer { z-index: 2; left: 3%; width: 94%; top: 26%; height: 60%; border-radius: 3.4cqw; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 3cqw 8cqw rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(6cqw); }
+/* The prompt of a terminal agent: the text line between two rules, and a status line under it. */
+.composer { z-index: 2; left: 3%; width: 94%; top: 26%; height: 60%; opacity: 0; transform: translateY(6cqw); font: max(9px, 2.5cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.composer::before { content: ""; position: absolute; left: 0; right: 0; bottom: 5.4cqw; height: 7.6cqw; border: solid #3a3a41; border-width: 1px 0; }
+.composer::after { content: "\276F"; position: absolute; left: 1cqw; bottom: 7.2cqw; color: var(--accent); }
 /* A prompt comes in from the left, as typed text does. */
-.say { position: absolute; left: 5cqw; right: 14cqw; bottom: 4.6cqw; font-size: max(10px, 2.8cqw); line-height: 1.4; clip-path: inset(0 100% 0 0); transition: clip-path 0s 0.5s; }
+.say { position: absolute; left: 4.8cqw; right: 1cqw; bottom: 7.2cqw; white-space: nowrap; clip-path: inset(0 100% 0 0); transition: clip-path 0s 0.5s; }
+.say i { color: var(--accent); font-style: normal; }
 .scene[data-step="2"] .s1, .scene[data-step="3"] .s1, .scene[data-step="5"] .s2 { clip-path: inset(0); }
 .scene[data-step="2"] .s1, .scene[data-step="5"] .s2 { transition: clip-path 1s 0.45s steps(26); }
-.send { position: absolute; right: 3.4cqw; bottom: 3.4cqw; display: flex; align-items: center; justify-content: center; width: 6.4cqw; height: 6.4cqw; border-radius: 50%; background: var(--accent); transition: opacity 0.3s, transform 0.5s var(--out); }
-.send svg { width: 50%; height: 50%; fill: none; stroke: var(--on-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.send em, .chat-tools, .chat-hint { display: none; }
-/* Variants of the chat box, for review: ?chat=b, c or d. */
-/* b: a tool row under the text. */
-[data-chat="b"] .composer { border-radius: 4cqw; }
-[data-chat="b"] .chat-tools { position: absolute; left: 3.4cqw; bottom: 3.4cqw; display: flex; align-items: center; gap: 1.6cqw; color: var(--muted); font-size: max(9px, 2.1cqw); transition: opacity 0.3s; }
-[data-chat="b"] .chat-tools svg { box-sizing: border-box; width: 6.4cqw; height: 6.4cqw; padding: 1.7cqw; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border); fill: none; stroke: #c9c9ce; stroke-width: 1.6; stroke-linecap: round; }
-[data-chat="b"] .chat-tools b { padding: 1.5cqw 2.4cqw; border-radius: 99px; box-shadow: inset 0 0 0 1px var(--border); font-weight: 500; }
-[data-chat="b"] .say { bottom: 13.4cqw; right: 5cqw; }
-[data-chat="b"][data-step="3"] .say, [data-chat="b"][data-step="5"] .say { bottom: 4.6cqw; }
-[data-chat="b"][data-step="3"] .chat-tools, [data-chat="b"][data-step="5"] .chat-tools { opacity: 0; }
-/* c: glass with a lime edge, and a send pill. */
-[data-chat="c"] .composer { border-radius: 5cqw; background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(198, 227, 58, 0.55), 0 3cqw 10cqw rgba(0, 0, 0, 0.45), 0 4cqw 14cqw -4cqw rgba(198, 227, 58, 0.28); }
-[data-chat="c"] .send { width: auto; gap: 1cqw; padding: 0 2.2cqw 0 2.8cqw; border-radius: 99px; color: var(--on-accent); font-size: max(9px, 2.2cqw); font-weight: 600; }
-[data-chat="c"] .send em { display: inline; font-style: normal; }
-[data-chat="c"] .send svg { width: 2.8cqw; height: 2.8cqw; rotate: 90deg; }
-[data-chat="c"] .say { right: 22cqw; }
-/* d: a prompt line, as in a terminal agent. */
-[data-chat="d"] .composer { border-radius: 1.8cqw; background: #0b0b0c; box-shadow: 0 0 0 1px var(--border), 0 3cqw 8cqw rgba(0, 0, 0, 0.4); }
-[data-chat="d"] .composer::before { content: ">"; position: absolute; left: 4cqw; bottom: 4.6cqw; color: var(--accent); font: 600 max(9px, 2.15cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-[data-chat="d"] .say { left: 8.4cqw; right: 3cqw; font: max(9px, 2.15cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-[data-chat="d"] .send { display: none; }
-[data-chat="d"] .chat-hint { position: absolute; right: 4cqw; top: 3.4cqw; display: block; color: #6d6d75; font: max(8px, 1.8cqw)/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; transition: opacity 0.3s; }
-[data-chat="d"][data-step="3"] .chat-hint, [data-chat="d"][data-step="5"] .chat-hint { opacity: 0; }
+.chat-hint { position: absolute; left: 1cqw; bottom: 0.8cqw; color: #77777f; font-size: max(8px, 2cqw); white-space: nowrap; }
+.chat-hint b { color: var(--accent); font-weight: 400; }
 
 /* The agent at work. A tool call shows as agents show it: a grid of dots and a label with a moving light, then a tick and the result. */
 .agent { z-index: 2; left: 4%; width: 92%; top: 48%; }
@@ -259,11 +239,10 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .scene:not([data-step="1"]) .ref .cursor, .scene:not([data-step="1"]) > .keys, .scene:not([data-step="1"]) > .copied { opacity: 0; }
 .scene:not([data-step="1"]) .ref { box-shadow: 0 1cqw 3cqw rgba(0, 0, 0, 0.4); }
 .scene:not([data-step="1"]) .ref .strip { line-height: 3cqw; opacity: 1; }
-.scene[data-step="2"] .ref { left: 8%; top: 17%; width: 50%; }
+.scene[data-step="2"] .ref { left: 4%; top: 22%; width: 50%; }
 .scene[data-step="2"] .composer { top: 12%; height: 70%; opacity: 1; transform: none; }
-.scene[data-step="3"] .ref { left: 7%; top: 6%; width: 26%; }
+.scene[data-step="3"] .ref { left: 4%; top: 2%; width: 26%; }
 .scene[data-step="3"] .composer { top: 2%; height: 40%; opacity: 1; transform: none; }
-.scene[data-step="3"] .send, .scene[data-step="5"] .send { opacity: 0; transform: translateY(-3cqw); }
 .scene[data-step="3"] .a3 > *, .scene[data-step="5"] .a5 > * { opacity: 1; transform: none; transition-delay: 0.35s; }
 .scene[data-step="3"] .a3 > :nth-child(2) { transition-delay: 2.5s; }
 .scene[data-step="3"] .a3 > :nth-child(3) { transition-delay: 2.75s; }

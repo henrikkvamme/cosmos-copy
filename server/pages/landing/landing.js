@@ -115,9 +115,6 @@
 
   // ---- How it works: the step at the middle of the view is the active one, and the scene shows its layout. ----
   const scene = document.getElementById("scene");
-  // For review: ?chat=b, c or d shows a variant of the chat box.
-  const chat = new URLSearchParams(location.search).get("chat");
-  if (chat) scene.dataset.chat = chat;
   const steps = [...document.querySelectorAll(".how-step")];
   if ("IntersectionObserver" in window) {
     // On a narrow page the scene stays at the top and the steps pass under it, so the line is lower there.
