@@ -182,22 +182,29 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .send { position: absolute; right: 3.4cqw; bottom: 3.4cqw; display: flex; align-items: center; justify-content: center; width: 6.4cqw; height: 6.4cqw; border-radius: 50%; background: var(--accent); transition: opacity 0.3s, transform 0.5s var(--out); }
 .send svg { width: 50%; height: 50%; fill: none; stroke: var(--on-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
-/* The agent at work. A tool call shows as agents show it: a spinner and a label with a moving light, then a tick and the result. */
+/* The agent at work. A tool call shows as agents show it: a grid of dots and a label with a moving light, then a tick and the result. */
 .agent { z-index: 2; left: 4%; width: 92%; top: 48%; }
 .agent > *, .result div, .recall div, .again { opacity: 0; transform: translateY(2.4cqw); transition: opacity 0.4s, transform 0.7s var(--out); }
 .tool { display: inline-grid; grid-template-columns: auto auto; align-items: center; gap: 0 1.6cqw; padding: 1.5cqw 2.4cqw 1.5cqw 1.8cqw; border-radius: 1.8cqw; background: #0b0b0c; box-shadow: 0 0 0 1px var(--border); color: #c9c9ce; font: max(10px, 2.05cqw)/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .tool .spin, .tool .ok { grid-area: 1 / 1; width: 2.6cqw; height: 2.6cqw; }
 .tool .doing, .tool .done { grid-area: 1 / 2; }
-.tool .spin { border: 0.36cqw solid rgba(198, 227, 58, 0.22); border-top-color: var(--accent); border-radius: 50%; opacity: 0; }
+/* The spinner: a grid of 9 dots, and a wave of light that goes from one corner to the other. */
+.tool .spin { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.34cqw; opacity: 0; }
+.tool .spin i { border-radius: 22%; background: var(--accent); opacity: 0.22; }
+.tool .spin i:nth-child(2), .tool .spin i:nth-child(4) { animation-delay: 0.12s; }
+.tool .spin i:nth-child(3), .tool .spin i:nth-child(5), .tool .spin i:nth-child(7) { animation-delay: 0.24s; }
+.tool .spin i:nth-child(6), .tool .spin i:nth-child(8) { animation-delay: 0.36s; }
+.tool .spin i:nth-child(9) { animation-delay: 0.48s; }
 .tool .ok { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tool .doing { background: linear-gradient(90deg, #6d6d75 35%, #fff 50%, #6d6d75 65%) 0 0 / 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; opacity: 0; }
 .tool b { color: var(--accent); font-weight: 400; }
-.scene[data-step="3"] .a3 .spin, .scene[data-step="5"] .a5 .spin { animation: work 2s 0.35s both, turn 0.8s linear infinite; }
+.scene[data-step="3"] .a3 .spin, .scene[data-step="5"] .a5 .spin { animation: work 2s 0.35s both; }
+.scene[data-step="3"] .a3 .spin i, .scene[data-step="5"] .a5 .spin i { animation-name: wave; animation-duration: 1.1s; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
 .scene[data-step="3"] .a3 .doing, .scene[data-step="5"] .a5 .doing { animation: work 2s 0.35s both, light 1.3s linear infinite; }
 .scene[data-step="3"] .a3 .done, .scene[data-step="3"] .a3 .ok, .scene[data-step="5"] .a5 .done, .scene[data-step="5"] .a5 .ok { animation: land 2.4s 0.35s both; }
 @keyframes work { 0%, 88% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes land { 0%, 80% { opacity: 0; transform: translateY(0.8cqw); } 100% { opacity: 1; transform: none; } }
-@keyframes turn { to { rotate: 360deg; } }
+@keyframes wave { 0%, 60%, 100% { opacity: 0.22; scale: 0.82; } 25% { opacity: 1; scale: 1; } }
 @keyframes light { from { background-position: 100% 0; } to { background-position: -50% 0; } }
 .line { display: flex; gap: 2cqw; margin-top: 2.6cqw; font-size: max(10px, 2.8cqw); line-height: 1.4; }
 .line .dot { margin-top: 0.55em; }
