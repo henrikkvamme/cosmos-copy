@@ -51,9 +51,10 @@
 
       <div class="agents">
         <h2>Connect agents</h2>
-        <p class="hint">Paste the prompt into any agent. The agent can then search your collections and all of Cosmos, and save to your collections.</p>
+        <p class="hint" id="agents-hint">Paste the prompt into any agent. The agent can then search your collections and all of Cosmos, and save to your collections.</p>
         <p class="hint renew" id="renew" hidden>The link to Cosmos has expired. <a href="https://www.cosmos.so" target="_blank" rel="noreferrer">Visit cosmos.so</a> to renew it.</p>
         <button class="pill dark" id="copy-prompt" disabled>Copy setup prompt</button>
+        <button class="text-button" id="copy-key-prompt" hidden>Copy setup for a host with no browser</button>
         <button class="text-button" id="unlink" hidden>Disconnect agents on this browser</button>
       </div>
       <p class="status" id="status"></p>

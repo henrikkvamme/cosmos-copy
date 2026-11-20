@@ -233,7 +233,7 @@ try {
     const mode = (await stat(join(dataDir, "links.json"))).mode & 0o777;
     check("links.json has mode 600", mode === 0o600, mode.toString(8));
     const stored = await readStore();
-    const account = stored.accounts.henrikkvamme;
+    const account = stored.accounts[HENRIK_ID];
     check(
       "links.json stores a key hash, not the key",
       account.devices.length === 1 && /^[0-9a-f]{64}$/.test(account.devices[0].keyHash) && !JSON.stringify(stored).includes(keyA),
@@ -270,7 +270,7 @@ try {
       await client.close();
     }
     const stored = await readStore();
-    check("links.json has two devices for henrikkvamme", stored.accounts.henrikkvamme.devices.length === 2, stored.accounts.henrikkvamme.devices.length);
+    check("links.json has two devices for henrikkvamme", stored.accounts[HENRIK_ID].devices.length === 2, stored.accounts[HENRIK_ID].devices.length);
   }
 
   // Another username.
@@ -428,7 +428,7 @@ try {
     const post = (body) => ({ ...json(body), method: "POST" });
 
     const instructions = vault.getInstructions() ?? "";
-    check("design: the server instructions name the flow", instructions.includes("start_picks") && instructions.includes("wait_for_picks") && instructions.includes("Never ask Henrik"), instructions);
+    check("design: the server instructions name the flow", instructions.includes("start_picks") && instructions.includes("wait_for_picks") && instructions.includes("Never ask the user"), instructions);
 
     const noHistory = await call(vault, "contact_sheet", { source: "history" });
     check("contact_sheet history: empty at first", !noHistory.isError && textOf(noHistory).includes("No pick history yet") && images(noHistory).length === 0, textOf(noHistory));
@@ -473,7 +473,7 @@ try {
     secret(sessionId);
     check(
       "start_picks: returns the picker link and skips a bad id",
-      !started.isError && link.endsWith(`/p/${sessionId}`) && started.structuredContent.candidates === 3 && started.structuredContent.skipped.includes("not-an-id") && textOf(started).includes("Do not ask Henrik"),
+      !started.isError && link.endsWith(`/p/${sessionId}`) && started.structuredContent.candidates === 3 && started.structuredContent.skipped.includes("not-an-id") && textOf(started).includes("Do not ask the user"),
       textOf(started),
     );
     const guessed = newKey().slice(0, 43);
@@ -532,14 +532,14 @@ try {
       !history.isError && images(history).length === 1 && textOf(history).includes('Task "Web dashboard for energy trading"') && textOf(history).includes("picked 1-2"),
       textOf(history).slice(0, 500),
     );
-    const historyFile = JSON.parse(await readFile(join(dataDir, "history", "henrikkvamme.json"), "utf8"));
+    const historyFile = JSON.parse(await readFile(join(dataDir, "history", `${HENRIK_ID}.json`), "utf8"));
     const entry = historyFile.entries[0];
     check(
       "history: picked ids, passed ids without the hidden tile, time",
       JSON.stringify(entry.picked.map((i) => i.id)) === JSON.stringify([first, extra]) && entry.passed.some((i) => i.id === second) && !entry.passed.some((i) => i.id === third) && Boolean(entry.at),
       entry,
     );
-    check("history: the file has mode 600", ((await stat(join(dataDir, "history", "henrikkvamme.json"))).mode & 0o777) === 0o600);
+    check("history: the file has mode 600", ((await stat(join(dataDir, "history", `${HENRIK_ID}.json`))).mode & 0o777) === 0o600);
 
     // A no-pick Done.
     const empty = await call(vault, "start_picks", { task: "Landing page", candidates: [REAL_ELEMENT] });
@@ -588,8 +588,8 @@ try {
     check("picks.json holds no session or board id, only hashes", !picksFile.includes(sessionId) && !picksFile.includes(boardId));
 
     // The style record.
-    const historyPath = join(dataDir, "history", "henrikkvamme.json");
-    const resultDir = join(dataDir, "history-images", "henrikkvamme");
+    const historyPath = join(dataDir, "history", `${HENRIK_ID}.json`);
+    const resultDir = join(dataDir, "history-images", HENRIK_ID);
     const resultFiles = () => readdir(resultDir).catch(() => []);
     const noShot = await call(vault, "note_result", { canvas: canvasLink, variant: 2, project: "zug-web", deviations: "None." });
     check("note_result: a variant without a screenshot is refused", noShot.isError === true && textOf(noShot).includes("no screenshot"), textOf(noShot));
@@ -683,7 +683,7 @@ try {
     );
     const rejectedOne = await call(vault, "note_references", { task: "paste task", rejected: first });
     check("note_references: a rejected reference is marked as passed", !rejectedOne.isError && JSON.stringify(rejectedOne.structuredContent?.passed) === JSON.stringify([first]), textOf(rejectedOne));
-    const notedFile = JSON.parse(await readFile(join(dataDir, "history", "henrikkvamme.json"), "utf8"));
+    const notedFile = JSON.parse(await readFile(join(dataDir, "history", `${HENRIK_ID}.json`), "utf8"));
     check(
       "note_references: one entry for the task, the rejected reference moved from picked to passed",
       notedFile.entries.length === 1 &&
@@ -711,8 +711,8 @@ try {
     fake.state.revoked.add(t3);
     const refused = await call(vault, "list_collections");
     check("refused token: tool error with the renew hint", refused.isError === true && textOf(refused).includes("Visit cosmos.so in Brave to renew the link."), textOf(refused));
-    const stored = await readStoreWhen((data) => !data.accounts.henrikkvamme?.token);
-    check("refused token: deleted from links.json, devices kept", !stored.accounts.henrikkvamme.token && stored.accounts.henrikkvamme.devices.length === 2, stored.accounts.henrikkvamme);
+    const stored = await readStoreWhen((data) => !data.accounts[HENRIK_ID]?.token);
+    check("refused token: deleted from links.json, devices kept", !stored.accounts[HENRIK_ID].token && stored.accounts[HENRIK_ID].devices.length === 2, stored.accounts[HENRIK_ID]);
     const again = await call(vault, "search_references", { query: "motion" });
     check("missing token: tool error with the renew hint", again.isError === true && textOf(again).includes("Visit cosmos.so in Brave to renew the link."), textOf(again));
     const cosmos = await call(vault, "search_cosmos", { query: "red poster", limit: 2 });
@@ -728,15 +728,15 @@ try {
   {
     await stopServer();
     const stored = await readStore();
-    stored.accounts.henrikkvamme.token.exp = Math.floor(Date.now() / 1000) - 5;
+    stored.accounts[HENRIK_ID].token.exp = Math.floor(Date.now() / 1000) - 5;
     await writeFile(join(dataDir, "links.json"), JSON.stringify(stored), { mode: 0o600 });
     await startServer();
     const client = await mcp(vaultPath("henrikkvamme", keyA));
     const result = await call(client, "list_references");
     check("expired token: tool error with the renew hint", result.isError === true && textOf(result).includes("Visit cosmos.so in Brave to renew the link."), textOf(result));
     await client.close();
-    const after = await readStoreWhen((data) => !data.accounts.henrikkvamme?.token);
-    check("expired token: deleted on read, devices kept", !after.accounts.henrikkvamme.token && after.accounts.henrikkvamme.devices.length === 2, after.accounts.henrikkvamme);
+    const after = await readStoreWhen((data) => !data.accounts[HENRIK_ID]?.token);
+    check("expired token: deleted on read, devices kept", !after.accounts[HENRIK_ID].token && after.accounts[HENRIK_ID].devices.length === 2, after.accounts[HENRIK_ID]);
   }
 
   // Unlink.
@@ -748,10 +748,15 @@ try {
     const removeA = await unlink(keyA);
     check("unlink the last device", removeA.status === 200 && removeA.body.removed === true, removeA);
     const stored = await readStore();
-    check("no devices left: the account and its token are deleted", !stored.accounts.henrikkvamme && Boolean(stored.accounts.otheruser), Object.keys(stored.accounts));
+    check("no devices left: the account and its token are deleted", !stored.accounts[HENRIK_ID] && Boolean(stored.accounts["42"]), Object.keys(stored.accounts));
     const again = await unlink(keyA);
     check("unlink an unknown key: removed false", again.status === 200 && again.body.removed === false, again);
-    const files = await readdir(dataDir);
+    // The data of the deleted account goes after the answer, so a write can be in progress.
+    let files = await readdir(dataDir);
+    for (let attempt = 0; attempt < 20 && files.some((f) => f.endsWith(".tmp")); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      files = await readdir(dataDir);
+    }
     check("no temporary files left in DATA_DIR", files.every((f) => !f.endsWith(".tmp")), files);
   }
 

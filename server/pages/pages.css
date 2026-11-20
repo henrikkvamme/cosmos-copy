@@ -68,3 +68,26 @@ h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em
 .tools button { padding: 5px 10px; border-radius: 8px; }
 .tools button:hover { background: var(--surface); }
 .tools .pct { width: 54px; text-align: center; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---- Account, sign-in and consent ---- */
+.account body { min-height: 100vh; display: flex; align-items: flex-start; justify-content: center; }
+.card { width: 440px; max-width: calc(100vw - 32px); margin: 16vh 0 48px; }
+.card p { color: var(--muted); margin: 0 0 16px; }
+.card p strong, .card dd strong { color: var(--text); font-weight: 500; }
+.card .actions { display: flex; gap: 8px; margin-top: 22px; }
+.card .btn { padding: 9px 16px; }
+.card .btn.wide { width: 100%; }
+.card .btn.danger { color: var(--bad); }
+.card .error { color: var(--bad); margin-top: 14px; }
+.card section { border-top: 1px solid var(--border); padding: 18px 0 4px; margin-top: 18px; }
+.card h2 { font-size: 13px; font-weight: 500; color: var(--muted); margin: 0 0 10px; }
+.card .line { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
+.card .line .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card .line .what small { display: block; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.card code { display: block; padding: 9px 12px; border-radius: 9px; background: var(--surface); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; user-select: all; }
+.card ul { margin: 0 0 16px; padding-left: 18px; color: var(--muted); }
+.card li { margin-bottom: 6px; }
+.card a { color: var(--text); }
+.card .foot { margin-top: 28px; font-size: 12px; }
+.card .foot a { color: var(--muted); }
+.card code + h2 { margin-top: 14px; }

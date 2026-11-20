@@ -15,6 +15,15 @@ A remote, stateless MCP server (Streamable HTTP) for Cosmos (cosmos.so). It has 
 - `POST /mcp/<username>/<slug>`: MCP endpoint for `https://www.cosmos.so/<username>/<slug>`.
 - `POST /mcp/<username>?key=<device key>`: the vault. Every request needs a device key that is
   linked to this username. A missing or wrong key gives 401. Many wrong keys from one IP give 429.
+- `POST /mcp`: the vault of the signed-in user. The request needs an OAuth access token for the
+  resource `PUBLIC_URL/mcp`. Without one the answer is 401 with a `WWW-Authenticate` header that
+  names the resource metadata, and an MCP client then starts the sign-in. See "Sign-in".
+- `/api/auth/*`, `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`:
+  Better Auth. Google sign-in, sessions and the OAuth endpoints.
+- `GET /login`, `/consent`, `/account`, `/connect`, `/privacy`: the pages of a signed-in person.
+  `/account/api/*` are their JSON endpoints.
+- `POST /connect/start` `{deviceKey}`: the extension asks for a connect ticket. `POST /connect/state`
+  `{deviceKey}` tells if a signed-in user is linked.
 - `POST /link` with `{token, deviceKey, deviceName}`: link a device. See "Linking".
 - `POST /unlink` with `{deviceKey}`: remove a device. Gives `{ok, removed}`.
 - `GET /p/<id>`: the picker page. `GET`/`PUT /p/<id>/state` reads the session and saves
@@ -91,14 +100,15 @@ When the token is missing, expired or refused, a vault tool that needs it gives 
   (for example 32 random bytes in base64url).
 - `deviceName`: such as "Brave on leela". At most 100 characters.
 
-The server calls `{ me { id username } }` on Cosmos with the token. Then it stores, per username,
+The server calls `{ me { id username } }` on Cosmos with the token. Then it stores, per Cosmos user id,
 one token and a list of devices:
 
 - A new device key adds a device. It never replaces another device. A known key updates its name
   and `lastSeen`. A device key belongs to one account.
 - The token replaces the stored one only when its `exp` is later, so an old device cannot replace a
   newer token.
-- `POST /unlink` removes a device. With no devices left, the account and its token are deleted.
+- `POST /unlink` removes a device. With no devices and no linked user left, the account, its
+  token and its pick data are deleted.
 - An expired token is deleted when it is read. A token that Cosmos refuses is deleted too. The
   devices stay, and the next relay links again.
 
@@ -109,6 +119,34 @@ reached, 503 when the data directory cannot be written.
 
 The extension calls `/link` from its background worker. It needs a host permission for this server.
 The server sends no CORS headers.
+
+## Sign-in
+
+A person signs in with Google (Better Auth). An MCP client gets access with OAuth 2.1: it reads the
+401 answer of `POST /mcp`, finds the authorization server, sends the person to `/login` and
+`/consent`, and gets an access token for the resource `PUBLIC_URL/mcp`.
+
+- Clients name themselves with a Client ID Metadata Document (Claude Code and Codex do). Open
+  dynamic client registration is off, so nobody can add client records from the internet.
+- An access token lasts 10 minutes and is checked without the database. A refresh token gets the
+  next one. `/account` lists the clients, and "Remove" deletes the consent and the tokens of one
+  client. Its last access token then works for at most 10 more minutes.
+- A sign-in is a Better Auth user. A Cosmos account is a different thing: it is keyed by the
+  Cosmos user id, and it holds the token, the devices and the linked users. The username is for
+  display and for the key route only, because Cosmos lets a person change it.
+- To link the two, the extension calls `POST /connect/start` with its device key and opens
+  `/connect#<ticket>`. The ticket is in the URL fragment, so no server and no log gets it. The
+  page shows the Cosmos username and the Google email, and "Link" confirms. A ticket lasts 10
+  minutes, works once, is kept in memory as a hash, and dies when its device is removed.
+- A user with no linked Cosmos account gets the full tool list. Each tool call returns an error
+  that tells the agent what the user must do.
+- A Cosmos account is deleted when it has no device and no linked user. Its token, pick sessions,
+  boards, screenshots, history and history images go with it. "Delete account" on `/account`
+  deletes the user, the sessions and the grants, and removes the user from the Cosmos account.
+- The device key route (`/mcp/<username>?key=`) stays for a host with no browser.
+- `AUTH_TEST_LOGIN=1` turns on sign-in with email and password, and open client registration, for
+  the smoke test. The server refuses to start with it in production mode or with a `PUBLIC_URL`
+  that is not loopback, and it then listens on 127.0.0.1 only.
 
 ## Security
 
@@ -138,12 +176,16 @@ The server sends no CORS headers.
 | Variable | Default | Use |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port. |
-| `DATA_DIR` | `/data` | Directory of `links.json`. It must be writable by the server user. |
-| `LINK_ALLOWED_USERS` | empty (all) | Comma-separated Cosmos usernames that may link, such as `henrikkvamme`. Set it in production. |
+| `DATA_DIR` | `/data` | Directory of `links.json`, `auth.db` and the pick data. It must be writable by the server user. |
+| `LINK_ALLOWED_USERS` | empty (all) | Comma-separated Cosmos usernames that may link, such as `henrikkvamme`. Leave it empty when anyone may sign up. |
 | `TRUST_PROXY` | on | The client IP is the last `X-Forwarded-For` entry (set by the Dokploy proxy). Set `0` when the server is reachable without a proxy. |
 | `LINK_RATE_LIMIT` | `30` | `/link` and `/unlink` requests per IP in 15 minutes. |
 | `KEY_FAILURE_LIMIT` | `20` | Vault requests with a wrong key per IP in 15 minutes. |
-| `PUBLIC_URL` | from the request | The base of picker and canvas links, such as `https://cosmos-mcp.henrikkvamme.no`. Without it, the server uses the `Host` header and, behind the proxy, `X-Forwarded-Proto`. |
+| `PUBLIC_URL` | from the request | The public origin: the base of picker and canvas links, and the OAuth issuer and resource. Sign-in needs it, such as `https://cosmos-mcp.henrikkvamme.no`. Without it, the server uses the `Host` header and, behind the proxy, `X-Forwarded-Proto`. |
+| `BETTER_AUTH_SECRET` | none | Secret of Better Auth (32 random bytes or more). Sign-in is off without it. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | none | The Google OAuth client. Its redirect URI is `PUBLIC_URL/api/auth/callback/google`. Sign-in is off without them, and `POST /mcp` answers 503. |
+| `USER_RATE_LIMIT` | `600` | MCP requests of one signed-in user in 15 minutes. |
+| `CONNECT_RATE_LIMIT` | `30` | `/connect/start`, `/connect/state` and connect requests per IP in 15 minutes. |
 | `PICK_WAIT_MS` | `50000` | How long one `wait_for_picks` call waits. Keep it under the 60-second tool timeout of agents. |
 | `PAGE_GUESS_LIMIT` | `30` | Unknown page or upload ids per IP in 15 minutes. |
 | `COSMOS_GRAPHQL_URL` | `https://api.cosmos.so/graphql` | For tests only: a fake Cosmos. |
@@ -160,14 +202,18 @@ The design flow keeps its data in the same directory, written the same way:
   days after its last change, a board 30 days after it was made. At most 20 sessions and 30 boards
   per user: a new one drops the oldest.
 - `boards/<board hash>/<n>.webp`: the uploaded screenshots.
-- `history/<username>.json`: the pick history, newest task first. Per task: the task, the time,
+- `history/<Cosmos user id>.json`: the pick history, newest task first. Per task: the task, the time,
   the picked elements and up to 300 passed ones. At most 100 tasks, each kept 12 months.
-  `clear_pick_history` deletes it. Unlinking does not.
+  `clear_pick_history` deletes it. Unlinking a device does not, while a device or a user is left.
+- `auth.db` (SQLite): the users, sessions, OAuth clients, grants and signing keys of Better Auth.
+
+A `links.json` of version 1 (keyed by username) is read and saved as version 2 at the start, and
+the history file and image folder of each account move from the username to the Cosmos user id.
 
 In Dokploy, mount a **named volume** at `/data` (Advanced, Volumes). A new named volume takes the
 owner of `/data` in the image (user `node`). A bind mount needs a host directory owned by uid 1000.
-Do not add this volume to backups: it holds the tokens. Losing it also loses the pick history. Losing it only means that the next relay
-links again. When `/data` is not writable, the server still serves the public endpoint and logs
+Do not add this volume to backups: it holds the tokens. Losing it loses the pick history, the
+sign-ins and the grants: each person must link and sign in again. When `/data` is not writable, the server still serves the public endpoint and logs
 `store_unwritable`, and `/link` answers 503.
 
 ## Run
@@ -191,6 +237,9 @@ docker run --rm -p 3000:3000 -v cosmos-mcp-data:/data cosmos-mcp
 ```sh
 npm run smoke
 ```
+
+`scripts/smoke-auth.mjs` covers sign-in: the move from version 1, the OAuth flow of an MCP client
+with a test sign-in, the connect ticket, and what is deleted when.
 
 `scripts/smoke.mjs` starts a fake Cosmos (`scripts/fake-cosmos.mjs`) and the built server with
 `COSMOS_GRAPHQL_URL` pointing at it. Requests with a token get mock data. Requests without a token

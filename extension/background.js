@@ -174,6 +174,12 @@ async function copyReference(tab, found, add = false) {
 }
 
 // Requests from the popup.
+// A JSON POST to the agent server. Null when the server gives no usable answer.
+async function post(path, body) {
+  const res = await fetch(`${SERVER}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+  return res?.ok ? res.json().catch(() => null) : null;
+}
+
 const popupHandlers = {
   async "popup:batch"() {
     return { items: (await currentBatch())?.items ?? [] };
@@ -191,7 +197,17 @@ const popupHandlers = {
     let { link } = await chrome.storage.local.get("link");
     if (!link?.ok) link = (await relay("popup"), (await chrome.storage.local.get("link")).link);
     const { username } = await cosmos.me();
-    return { url: `${SERVER}/mcp/${username}?key=${key}`, link };
+    // Is a Google account connected? Null when the server cannot tell (no link, or an old server).
+    const state = link?.ok ? await post("/connect/state", { deviceKey: key }) : null;
+    return { url: `${SERVER}/mcp`, keyUrl: `${SERVER}/mcp/${username}?key=${key}`, link, connected: state?.connected ?? null };
+  },
+  // Starts the link of this browser's Cosmos account to a Google sign-in, in a new tab.
+  async "popup:connect"() {
+    const { key } = await device();
+    const started = await post("/connect/start", { deviceKey: key });
+    if (!started?.url?.startsWith(`${SERVER}/connect#`)) throw new Error("The agent server did not answer. Try again.");
+    await chrome.tabs.create({ url: started.url });
+    return {};
   },
   async "popup:unlink"() {
     await unlink();

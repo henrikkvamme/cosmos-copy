@@ -35,29 +35,39 @@ its variants beside them on a canvas page.
 
 ## Connect agents
 
-Open the extension, click the gear and click "Copy setup prompt". Paste it into any agent.
+Open the extension and click the gear.
 
-The prompt adds the server. Claude Code needs no more: it gives the agent the server's own
-instructions. Codex does not, so in Codex and other clients the prompt also adds a short rule
-to the user-level instructions (Codex: `~/.codex/AGENTS.md`). The rule names the two tools
-that a task starts with, and the tool results carry the rest. Codex asks for approval when a
-Cosmos tool changes something; allow the tools if you run Codex unattended.
+1. Click "Connect account". A page opens: sign in with Google, check the Cosmos username and click
+   "Link". Your Cosmos account is now linked to your Google sign-in.
+2. Click "Copy setup prompt" and paste it into any agent. The prompt adds the server
+   `https://cosmos-mcp.henrikkvamme.no/mcp` and starts the sign-in. The URL holds no secret: the
+   agent's client opens the browser, and you allow it once. The account page
+   (`/account` on the server) lists the apps with access and removes them.
 
-The extension links your Cosmos login to the server for each browser. It sends the
-`csms_accessToken` cookie on install, on startup, every 6 hours and when Cosmos renews it.
-The setup URL holds this browser's device key, so keep it private. The token lasts 7 days:
-visit cosmos.so now and then to keep it fresh.
+For a host with no browser, click "Copy setup for a host with no browser". That URL holds this
+browser's device key, so keep it private.
+
+Claude Code gives the agent the server's own instructions. Codex does not, so in Codex and other
+clients the prompt also adds a short rule to the user-level instructions (Codex:
+`~/.codex/AGENTS.md`). The rule names the two tools that a task starts with, and the tool results
+carry the rest. Codex asks for approval when a Cosmos tool changes something; allow the tools if
+you run Codex unattended.
+
+The extension links your Cosmos login to the server from each browser. It sends the
+`csms_accessToken` cookie on install, on startup, every 6 hours and when Cosmos renews it. The
+token lasts 7 days: visit cosmos.so now and then to keep it fresh.
 
 Vault tools: `list_collections`, `list_references`, `search_references`, `get_reference`,
 `search_cosmos`, `save_reference`, and the design flow tools `contact_sheet`, `start_picks`,
 `wait_for_picks`, `show_variants`, `note_references`, `note_result` and `clear_pick_history`.
 
-"Disconnect agents on this browser" revokes the key at once. The extension stays
+"Disconnect agents on this browser" revokes the key at once. The extension then stays
 disconnected until you click "Connect agents again", which makes a new key and a new setup URL.
+To remove everything, disconnect each browser and click "Delete account" on the account page.
 
-The server only links the Cosmos users in `LINK_ALLOWED_USERS`. It keeps the links in
-`DATA_DIR/links.json` (mode 600), on the `cosmos-mcp-data` volume in Dokploy. The pick sessions,
-canvas boards, screenshots and pick history are on the same volume.
+The server keeps the links in `DATA_DIR/links.json` and the sign-ins in `DATA_DIR/auth.db` (mode
+600), on the `cosmos-mcp-data` volume in Dokploy. The pick sessions, canvas boards, screenshots
+and the pick history are on the same volume. `server/README.md` has the details.
 
 ## Design from references
 

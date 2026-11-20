@@ -3,6 +3,9 @@
 //   POST /mcp/:username/:slug   MCP endpoint for the public Cosmos collection cosmos.so/<username>/<slug>.
 //                               Anonymous. It never uses a linked token.
 //   POST /mcp/:username?key=…   The vault: all collections of a linked account. Needs a device key.
+//   POST /mcp                   The vault of the signed-in user (OAuth, see auth.ts). No secret in the URL.
+//   /api/auth/*, /.well-known/* Sign-in with Google and OAuth for MCP clients (auth.ts).
+//   /login, /account, …         The pages of a signed-in person (account.ts).
 //   POST /link                  {token, deviceKey, deviceName}: link a device and relay the Cosmos token.
 //   POST /unlink                {deviceKey}: remove a device.
 //   /p/<id>, /v/<id>, /u/<id>   Picker page, variants canvas and screenshot upload (see pages.ts).
@@ -14,6 +17,8 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { AccountPages } from "./account.js";
+import { createAuth, type Auth } from "./auth.js";
 import { CosmosError, getCollection, JWT_PATTERN, SLUG_PATTERN, USERNAME_PATTERN, type Collection } from "./cosmos.js";
 import { buildInstructions, buildServer } from "./mcp.js";
 import { Pages } from "./pages.js";
@@ -46,6 +51,29 @@ const linkLimiter = new RateLimiter(Number(process.env.LINK_RATE_LIMIT ?? 30), 1
 /** Vault requests with a missing or wrong key, per IP. Over the limit, the IP gets 429. */
 const keyFailureLimiter = new RateLimiter(Number(process.env.KEY_FAILURE_LIMIT ?? 20), 15 * 60_000);
 
+/** MCP requests of one signed-in user. */
+const userLimiter = new RateLimiter(Number(process.env.USER_RATE_LIMIT ?? 600), 15 * 60_000);
+/** /connect/start and the connect endpoint, per IP. */
+const connectLimiter = new RateLimiter(Number(process.env.CONNECT_RATE_LIMIT ?? 30), 15 * 60_000);
+
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+/**
+ * Tests only: sign-in with email and password. It needs a loopback PUBLIC_URL and a process that is
+ * not in production mode, and the server then listens on the loopback interface only.
+ */
+const TEST_LOGIN = process.env.AUTH_TEST_LOGIN === "1";
+if (TEST_LOGIN && (process.env.NODE_ENV === "production" || !PUBLIC_URL || !LOOPBACK_HOSTS.has(new URL(PUBLIC_URL).hostname))) {
+  throw new Error("AUTH_TEST_LOGIN needs a loopback PUBLIC_URL and a process that is not in production mode.");
+}
+
+const NOT_LINKED =
+  "The user is signed in, but no Cosmos account is linked to this sign-in yet, so the tools cannot work. " +
+  "Tell the user: install the Cosmos Copy browser extension, sign in on cosmos.so, open the extension and click " +
+  '"Connect account". Then call the tool again. No restart is needed.';
+
+let auth: Auth | undefined;
+let accountPages: AccountPages | undefined;
+
 const USAGE = `cosmos-mcp: a read-only MCP server for public Cosmos (cosmos.so) collections.
 
 MCP endpoint (Streamable HTTP, stateless, no login):
@@ -56,6 +84,10 @@ Vault of a linked account (needs the device key from the browser extension):
   POST /mcp/<username>?key=<deviceKey>
   Tools: list_collections, list_references, search_references, get_reference, search_cosmos, save_reference,
   contact_sheet, start_picks, wait_for_picks, show_variants, note_references, note_result, clear_pick_history.
+
+Vault of a signed-in user (sign in with Google, then link Cosmos from the extension):
+  POST /mcp
+  Account page: GET /account
 
 Add it to Claude Code:
   claude mcp add --transport http cosmos https://<this-host>/mcp/<username>/<slug>
@@ -173,14 +205,70 @@ async function handleVault(req: IncomingMessage, res: ServerResponse, username: 
   const server = buildVaultServer({
     username: account.username,
     userId: account.userId,
-    token: () => store.token(account.username, log)?.token,
-    dropToken: (token) => store.dropToken(account.username, token, log),
+    token: () => store.token(account.userId, log)?.token,
+    dropToken: (token) => store.dropToken(account.userId, token, log),
     picks,
     baseUrl: baseUrl(req),
     log,
   });
   await serve(req, res, server, read.body);
   return rpcMethods(read.body);
+}
+
+/** The vault of the signed-in user. The bearer token names the user, and the store names the Cosmos account. */
+async function handleSignedIn(req: IncomingMessage, res: ServerResponse): Promise<string[]> {
+  if (!auth) {
+    sendRpcError(res, 503, -32000, "Sign-in is not set up on this server. Use the MCP URL with the device key from the Cosmos Copy extension.");
+    return [];
+  }
+  const checked = await auth.bearer(req);
+  if (!("userId" in checked)) {
+    res.writeHead(checked.status, checked.headers).end(checked.body);
+    return [];
+  }
+  // The token is checked without the database, so it can outlive its user. A deleted user gets nothing.
+  if (!(await auth.exists(checked.userId))) {
+    sendRpcError(res, 401, -32000, "This account was deleted. Sign in again.", { "www-authenticate": `Bearer error="invalid_token", resource_metadata="${PUBLIC_URL}/.well-known/oauth-protected-resource/mcp"` });
+    return [];
+  }
+  if (!userLimiter.hit(checked.userId)) {
+    sendRpcError(res, 429, -32000, "Too many requests. Try again later.", { "retry-after": "900" });
+    return [];
+  }
+  const read = await readRpcBody(req, res);
+  if (!read) return [];
+  const methods = rpcMethods(read.body);
+  const account = store.accountOfUser(checked.userId);
+  if (!account) {
+    // The same tools as a linked user gets, so the client's tool list stays right after the link.
+    // A tool call gets the reason and the fix.
+    const calls = (Array.isArray(read.body) ? read.body : [read.body]).filter(
+      (message): message is { id: string | number; method: string } =>
+        Boolean(message) && typeof message === "object" && (message as { method?: unknown }).method === "tools/call" && (message as { id?: unknown }).id !== undefined,
+    );
+    if (calls.length) {
+      const results = calls.map((call) => ({ jsonrpc: "2.0", id: call.id, result: { content: [{ type: "text", text: NOT_LINKED }], isError: true } }));
+      sendJson(res, 200, Array.isArray(read.body) ? results : results[0]);
+      return methods;
+    }
+    const server = buildVaultServer(
+      { username: "the user", userId: "", token: () => undefined, dropToken: () => undefined, picks, baseUrl: baseUrl(req), log },
+      `This server gives access to the Cosmos (cosmos.so) vault of the signed-in user. ${NOT_LINKED}`,
+    );
+    await serve(req, res, server, read.body);
+    return methods;
+  }
+  const server = buildVaultServer({
+    username: account.username,
+    userId: account.userId,
+    token: () => store.token(account.userId, log)?.token,
+    dropToken: (token) => store.dropToken(account.userId, token, log),
+    picks,
+    baseUrl: baseUrl(req),
+    log,
+  });
+  await serve(req, res, server, read.body);
+  return methods;
 }
 
 function readField(body: unknown, name: string): unknown {
@@ -317,7 +405,14 @@ const httpServer = createServer((req, res) => {
       const ip = clientIp(req);
       return path === "/link" ? handleLink(req, res, ip) : handleUnlink(req, res, ip);
     }
+    if (auth?.owns(path)) return auth.handle(req, res);
+    if (accountPages && (await accountPages.handle(req, res, path, clientIp(req)))) return;
     if (await pages.handle(req, res, path, clientIp(req))) return;
+    if (path === "/mcp") {
+      if (req.method !== "POST") return sendRpcError(res, 405, -32000, "Method not allowed. Use POST.", { allow: "POST" });
+      methods = await handleSignedIn(req, res);
+      return;
+    }
     const vaultMatch = /^\/mcp\/([^/]+)$/.exec(path);
     if (vaultMatch) {
       if (req.method !== "POST") return sendRpcError(res, 405, -32000, "Method not allowed. Use POST.", { allow: "POST" });
@@ -355,10 +450,45 @@ httpServer.requestTimeout = REQUEST_TIMEOUT_MS;
 httpServer.headersTimeout = 15_000;
 httpServer.setTimeout(REQUEST_TIMEOUT_MS + 5_000);
 
+// An account with no device and no user is deleted. Its picker links, canvases and history go with it.
+store.onAccountDeleted = (userId) => void picks.deleteOwner(userId, log);
 await store.load(log);
-await picks.load(log);
+// The usernames of a version 1 file stay in links.json until their pick data has moved.
+if (await picks.load(log, store.legacyOwners)) {
+  await store.finishMigration().catch((error: unknown) => log({ level: "error", event: "store_write_failed", error: (error as Error).message }));
+}
+
+const authEnv = { secret: process.env.BETTER_AUTH_SECRET ?? "", id: process.env.GOOGLE_CLIENT_ID ?? "", key: process.env.GOOGLE_CLIENT_SECRET ?? "" };
+if (PUBLIC_URL && authEnv.secret && ((authEnv.id && authEnv.key) || TEST_LOGIN)) {
+  auth = await createAuth(
+    {
+      publicUrl: PUBLIC_URL,
+      secret: authEnv.secret,
+      googleClientId: authEnv.id,
+      googleClientSecret: authEnv.key,
+      dataDir: DATA_DIR,
+      testLogin: TEST_LOGIN,
+      onUserDeleted: async (userId) => {
+        if (store.unbindUser(userId)) await store.save();
+        log({ event: "user_deleted" });
+      },
+    },
+    log,
+  );
+  // A user that was deleted while the link file could not be written is still in the file.
+  let stale = 0;
+  for (const userId of store.linkedUsers()) if (!(await auth.exists(userId)) && store.unbindUser(userId)) stale++;
+  if (stale) {
+    await store.save().catch((error: unknown) => log({ level: "error", event: "store_write_failed", error: (error as Error).message }));
+    log({ event: "stale_users_removed", users: stale });
+  }
+  accountPages = new AccountPages(auth, store, PUBLIC_URL, connectLimiter, log);
+  log({ event: "auth_ready", testLogin: TEST_LOGIN });
+} else {
+  log({ event: "auth_off", reason: "PUBLIC_URL, BETTER_AUTH_SECRET, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set" });
+}
 setInterval(() => void picks.prune(log), 60 * 60_000).unref();
-httpServer.listen(PORT, "0.0.0.0", () => log({ event: "listening", port: PORT, dataDir: DATA_DIR, linkStore: store.writable ? "writable" : "unwritable" }));
+httpServer.listen(PORT, TEST_LOGIN ? "127.0.0.1" : "0.0.0.0", () => log({ event: "listening", port: PORT, dataDir: DATA_DIR, linkStore: store.writable ? "writable" : "unwritable" }));
 
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {

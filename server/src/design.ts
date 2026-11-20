@@ -73,11 +73,11 @@ function picksOf(session: Session): Tile[] {
   return session.picked.map((pickId) => byId.get(pickId)).filter((tile): tile is Tile => tile !== undefined);
 }
 
-/** Starts the image downloads when Henrik clicks Done, so the waiting tool call finds them in the cache. */
+/** Starts the image downloads when the user clicks Done, so the waiting tool call finds them in the cache. */
 /** The history sheet is the first call of a design task, so its result names the rest of the flow. Some clients do not give the agent the server instructions. */
 const AFTER_HISTORY =
   "Next: call contact_sheet with source vault, then with source cosmos and a query for the task. Then call start_picks with the task and the " +
-  "candidate ids, and give Henrik the link. Do not build before he has picked.";
+  "candidate ids, and give the user the link. Do not build before they have picked.";
 
 export function prefetchPickImages(session: Session): void {
   const picks = picksOf(session);
@@ -86,7 +86,7 @@ export function prefetchPickImages(session: Session): void {
 
 export const PLAN_TEXT =
   "Propose at most 3 variants, one line each: a close match of one pick, or a mix such as layout of pick 2, colours of pick 5. " +
-  "Henrik can change the plan in words, or let it run. If the picks give too little to work from, choose other candidates and call start_picks again.";
+  "The user can change the plan in words, or let it run. If the picks give too little to work from, choose other candidates and call start_picks again.";
 
 export const BUILD_TEXT =
   "Match the reference closely: layout structure, colour palette, type style, shapes, density, spacing and the style of its imagery. " +
@@ -97,7 +97,7 @@ export const BUILD_TEXT =
 
 export const SHOW_TEXT =
   "At the end, show the variants: call show_variants with the picks each variant takes from, and upload a screenshot of each. " +
-  "When Henrik accepts a design, call note_result.";
+  "When the user accepts a design, call note_result.";
 
 /** The final screenshot of a style record: small enough to send in a tool result, three per history page. */
 const RESULT_WIDTH = 1280;
@@ -189,7 +189,7 @@ function sessionIdFrom(value: string): string | undefined {
 }
 
 export function registerDesignTools(server: McpServer, ctx: DesignContext, withToken: WithToken): void {
-  const mine = (owner: string) => owner.toLowerCase() === ctx.username.toLowerCase();
+  const mine = (owner: string) => owner === ctx.userId;
 
   /** Reads an element as public data, else as the account (a private element). */
   async function resolveReference(id: string): Promise<Reference | undefined> {
@@ -205,7 +205,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
   /** Thumbnails the account showed in a picker lately: no request to Cosmos for those. */
   function knownTiles(): Map<string, Tile> {
     const known = new Map<string, Tile>();
-    for (const session of ctx.picks.sessionsOf(ctx.username)) {
+    for (const session of ctx.picks.sessionsOf(ctx.userId)) {
       for (const tile of session.tiles) if (!known.has(tile.id)) known.set(tile.id, tile);
     }
     return known;
@@ -291,16 +291,16 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       title: "See references as a contact sheet",
       description:
         "See many references at once: numbered thumbnails in one image (30 per sheet), with a text list that maps each number to " +
-        "an id. Use it at the start of a design task: source history shows Henrik's earlier picks (blue frame) and passes (dimmed) per task, and the style record of a project (its final screenshot; give project to see one project); " +
-        "source vault shows his saved references, newest first, or ranked by meaning with a query; source cosmos shows " +
+        "an id. Use it at the start of a design task: source history shows the user's earlier picks (blue frame) and passes (dimmed) per task, and the style record of a project (its final screenshot; give project to see one project); " +
+        "source vault shows their saved references, newest first, or ranked by meaning with a query; source cosmos shows " +
         "a search of all of Cosmos. Look at the sheets, choose the candidates and their order, then call start_picks.",
       inputSchema: {
-        source: z.enum(["vault", "cosmos", "history"]).describe("vault: Henrik's saves. cosmos: all of Cosmos (needs a query). history: his earlier picks and passes."),
+        source: z.enum(["vault", "cosmos", "history"]).describe("vault: the user's saves. cosmos: all of Cosmos (needs a query). history: their earlier picks and passes."),
         query: z.string().max(300).optional().describe("vault: optional, ranks by meaning. cosmos: required, what to find in plain words."),
         collection: z.string().min(1).max(300).optional().describe("vault only: a collection name, slug or id."),
         count: z.number().int().min(1).max(MAX_SHEET_COUNT).optional().describe(`vault and cosmos: references to show. Default 30, maximum ${MAX_SHEET_COUNT} (2 sheets).`),
         cursor: z.string().max(4000).optional().describe("The nextCursor of the previous contact_sheet result, with the same source and query."),
-        project: z.string().min(1).max(80).optional().describe('history only: show the tasks of one project, such as "zug-web". Use it when Henrik asks for the style of a project.'),
+        project: z.string().min(1).max(80).optional().describe('history only: show the tasks of one project, such as "zug-web". Use it when the user asks for the style of a project.'),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -314,7 +314,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const want = count ?? PER_SHEET;
 
       if (source === "history") {
-        const all = await ctx.picks.history(ctx.username);
+        const all = await ctx.picks.history(ctx.userId);
         const projects = [...new Map(all.filter((e) => e.project).map((e) => [e.project!.toLowerCase(), e.project!])).values()];
         const entries = term ? all.filter((e) => e.project?.toLowerCase() === term) : all;
         const start = position?.o ?? 0;
@@ -346,7 +346,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
                 ...result.took.map((take) => `  took from [${take.id}]: ${take.what}`),
                 `  deviations: ${result.deviations}`,
               ],
-              image: await ctx.picks.readResultImage(ctx.username, result.file),
+              image: await ctx.picks.readResultImage(ctx.userId, result.file),
             };
             return {
               title: `Task "${entry.task}" (${entry.at.slice(0, 10)})${entry.project ? `, project "${entry.project}"` : ""}: picked ${range(pickedNumbers)}, passed ${range(passedNumbers)}${hiddenPassed > 0 ? ` (${hiddenPassed} more passes not shown)` : ""}.`,
@@ -365,7 +365,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           nextCursor,
           term
             ? "To design in the style of this project, match the final screenshot, and use the references and the deviations to see what the style keeps and what it changes."
-            : `Use what he picked and passed to choose and order the candidates for the new task. ${AFTER_HISTORY}`,
+            : `Use what they picked and passed to choose and order the candidates for the new task. ${AFTER_HISTORY}`,
           {
             source,
             projects,
@@ -446,8 +446,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     {
       title: "Start a pick session",
       description:
-        "Open a picker page for a design task: a grid of the candidates you chose. Henrik clicks the references he wants the result " +
-        'to look like, can ask for "More like these", and clicks Done. Returns the picker link. Give Henrik the link, then call ' +
+        "Open a picker page for a design task: a grid of the candidates you chose. The user clicks the references they want the result " +
+        'to look like, can ask for "More like these", and clicks Done. Returns the picker link. Give the user the link, then call ' +
         "wait_for_picks. Choose the candidates first with contact_sheet (history, then vault and cosmos).",
       inputSchema: {
         task: z.string().min(1).max(200).describe('The design task in a few words, such as "Onboarding for an iOS travel app".'),
@@ -477,16 +477,16 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const tiles = resolved.filter((tile): tile is Tile => tile !== undefined);
       const skipped = [...bad, ...ids.filter((id, index) => !resolved[index])];
       if (tiles.length === 0) return errorResult(`None of the candidates could be read from Cosmos (${skipped.join(", ")}). Use ids from contact_sheet.`);
-      const { id } = ctx.picks.createSession(ctx.username, task.trim(), tiles);
+      const { id } = ctx.picks.createSession(ctx.userId, task.trim(), tiles);
       const failed = await saveOrFail();
       if (failed) return failed;
       const link = `${ctx.baseUrl}/p/${id}`;
       const lines = [
         `Pick session for "${task.trim()}" with ${tiles.length} candidates.`,
         "",
-        `Give Henrik this link: ${link}`,
+        `Give the user this link: ${link}`,
         "",
-        `Then call wait_for_picks with session "${id}". It returns his picks when he clicks Done. Do not ask Henrik to tell you that he is done.`,
+        `Then call wait_for_picks with session "${id}". It returns their picks when they click Done. Do not ask the user to tell you that they are done.`,
       ];
       if (skipped.length) lines.push("", `Left out (could not be read): ${skipped.join(", ")}.`);
       return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: { session: id, link, candidates: tiles.length, skipped } };
@@ -503,7 +503,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         content: [
           {
             type: "text",
-            text: `Henrik clicked Done on "${session.task}" without picks: none of the ${passed} candidates fit. Look at other references with contact_sheet, then call start_picks again.`,
+            text: `The user clicked Done on "${session.task}" without picks: none of the ${passed} candidates fit. Look at other references with contact_sheet, then call start_picks again.`,
           },
         ],
         structuredContent: { session: id, task: session.task, status: "done", picks: [], passed },
@@ -516,7 +516,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     const content: CallToolResult["content"] = [
       {
         type: "text",
-        text: `Henrik picked ${picks.length} of ${passed + picks.length} references for "${session.task}", in the order he picked them. Each pick follows as an image.`,
+        text: `The user picked ${picks.length} of ${passed + picks.length} references for "${session.task}", in the order they picked them. Each pick follows as an image.`,
       },
     ];
     shown.forEach((tile, index) => {
@@ -557,10 +557,10 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
   server.registerTool(
     "wait_for_picks",
     {
-      title: "Wait for Henrik's picks",
+      title: "Wait for the user's picks",
       description:
-        `Wait until Henrik clicks Done in the picker, then get his picks as images with their ids and the next steps. A call waits up to ${WAIT_MS / 1000} seconds. ` +
-        "When it says that he is not done yet, call it again. Never ask Henrik to tell you that he is done.",
+        `Wait until the user clicks Done in the picker, then get their picks as images with their ids and the next steps. A call waits up to ${WAIT_MS / 1000} seconds. ` +
+        "When it says that they are not done yet, call it again. Never ask the user to tell you that they are done.",
       inputSchema: {
         session: z.string().min(1).max(500).describe("The session from start_picks (or the picker link)."),
       },
@@ -569,7 +569,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     async ({ session: raw }, extra) => {
       const id = sessionIdFrom(raw);
       const found = id ? ctx.picks.session(id) : undefined;
-      if (!id || !found || !mine(found.username)) {
+      if (!id || !found || !mine(found.owner)) {
         return errorResult("No pick session has this id. Sessions expire 7 days after the last change. Call start_picks for a new one.");
       }
       const deadline = Date.now() + WAIT_MS + IMAGE_BUDGET_MS;
@@ -577,12 +577,12 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const session = ctx.picks.session(id);
       if (!session) return errorResult("The pick session expired. Call start_picks for a new one.");
       if (session.status === "done") return picksResult(id, session, deadline);
-      const seen = session.seenAt ? "Henrik has the picker open" : "Henrik has not opened the picker yet";
+      const seen = session.seenAt ? "The user has the picker open" : "The user has not opened the picker yet";
       return {
         content: [
           {
             type: "text",
-            text: `Not done yet. ${seen}, ${session.picked.length} picked so far. Call wait_for_picks again with the same session.${session.seenAt ? "" : ` If he has not seen it, give him the link again: ${ctx.baseUrl}/p/${id}`}`,
+            text: `Not done yet. ${seen}, ${session.picked.length} picked so far. Call wait_for_picks again with the same session.${session.seenAt ? "" : ` If they have not seen it, give them the link again: ${ctx.baseUrl}/p/${id}`}`,
           },
         ],
         structuredContent: { session: id, status: "open", picked: session.picked.length, opened: Boolean(session.seenAt) },
@@ -598,7 +598,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       title: "Show the variants on a canvas",
       description:
         "At the end of a design task: make a canvas page that shows each variant beside the references it takes from, with pan and zoom. " +
-        "Returns the canvas link and one upload command per variant. Run the upload commands with your screenshots, then give Henrik the link.",
+        "Returns the canvas link and one upload command per variant. Run the upload commands with your screenshots, then give the user the link.",
       inputSchema: {
         task: z.string().min(1).max(200).describe("The design task, as in start_picks."),
         variants: z
@@ -650,7 +650,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         }
         built.push({ name: variant.name.trim(), takes });
       }
-      const { id, uploadId } = ctx.picks.createBoard(ctx.username, task.trim(), built);
+      const { id, uploadId } = ctx.picks.createBoard(ctx.userId, task.trim(), built);
       const failed = await saveOrFail();
       if (failed) return failed;
       const link = `${ctx.baseUrl}/v/${id}`;
@@ -662,8 +662,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         ...uploads.map((upload) => `  ${upload.variant}. ${upload.name}\n     curl -sS --fail -T <screenshot of variant ${upload.variant}> '${upload.url}'`),
         "",
         "To replace a screenshot, upload again to the same URL. The page shows each one as it arrives.",
-        "Then give Henrik the canvas link. He picks one and continues by prompt: keep it, mix two, or make it more unique.",
-        "When he accepts a design, call note_result with this canvas link, the number of the variant, the project and the deviations. " +
+        "Then give the user the canvas link. They pick one and continue by prompt: keep it, mix two, or make it more unique.",
+        "When they accept a design, call note_result with this canvas link, the number of the variant, the project and the deviations. " +
           "If the accepted design is not on a canvas, call show_variants with it first.",
       ];
       if (missing.length) lines.push("", `Left out (could not be read): ${missing.join(", ")}.`);
@@ -678,7 +678,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     {
       title: "Record the accepted design",
       description:
-        "Call this when Henrik accepts a design. It keeps a style record for the project: the references the design took from, what it took, " +
+        "Call this when the user accepts a design. It keeps a style record for the project: the references the design took from, what it took, " +
         "how it deviates from them, and the final screenshot from the canvas. Later tasks get the record with contact_sheet (source history, " +
         "project). The design must be a variant on a canvas from show_variants, with its screenshot uploaded.",
       inputSchema: {
@@ -689,7 +689,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           .string()
           .min(1)
           .max(600)
-          .describe("How the accepted design deviates from the references, and what Henrik changed in words. One to three sentences."),
+          .describe("How the accepted design deviates from the references, and what the user changed in words. One to three sentences."),
         took: z
           .array(z.object({ id: z.union([z.string().max(200), z.number().int().positive()]), what: z.string().min(1).max(120) }))
           .max(6)
@@ -701,7 +701,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     async ({ canvas, variant, project, deviations, took = [] }) => {
       const id = /([A-Za-z0-9_-]{43})\/?$/.exec(canvas.trim().split(/[?#]/)[0]!)?.[1];
       const found = id ? ctx.picks.boardWithHash(id) : undefined;
-      if (!found || found.board.username.toLowerCase() !== ctx.username.toLowerCase()) {
+      if (!found || found.board.owner !== ctx.userId) {
         return errorResult("No canvas has this link. Canvases expire after 30 days. Call show_variants with the accepted design, then call note_result with the new link.");
       }
       const chosen = found.board.variants[variant - 1];
@@ -726,8 +726,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       }
       try {
         // The file is written first, and the history changes in one step after it. A file that no entry names is deleted later.
-        const file = await ctx.picks.writeResultImage(ctx.username, image.data);
-        const { replaced } = await ctx.picks.noteResult(ctx.username, found.board.task, project.trim(), {
+        const file = await ctx.picks.writeResultImage(ctx.userId, image.data);
+        const { replaced } = await ctx.picks.noteResult(ctx.userId, found.board.task, project.trim(), {
           at: new Date().toISOString(),
           board: found.hash,
           variant: chosen.name,
@@ -768,10 +768,10 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       title: "Note pasted and rejected references",
       description:
         'Call this first when an image in the chat has a dark strip at its bottom edge with a label such as "cosmos 1850854004-65 · call ' +
-        'note_references" (a reference id and two check digits). Henrik copied that image from Cosmos as a reference for the task. Give the ' +
-        'labels in pasted. Call it also when Henrik attached a file with a name such as "cosmos-1277394779.mp4" (a video has no strip): give ' +
-        "the file name in pasted. The call returns at once and does not wait for Henrik. It records the references as his picks, so no picker is " +
-        "needed, and it returns the next steps. The strip is not part of the design. Call it again with rejected when Henrik says that he " +
+        'note_references" (a reference id and two check digits). The user copied that image from Cosmos as a reference for the task. Give the ' +
+        'labels in pasted. Call it also when the user attached a file with a name such as "cosmos-1277394779.mp4" (a video has no strip): give ' +
+        "the file name in pasted. The call returns at once and does not wait for the user. It records the references as their picks, so no picker is " +
+        "needed, and it returns the next steps. The strip is not part of the design. Call it again with rejected when the user says that they " +
         "does not want a reference, or did not like what came of it: it then counts as passed.",
       inputSchema: {
         task: z.string().min(1).max(200).describe('The design task in a few words, such as "Onboarding for an iOS travel app". Use the same words in later calls for this task.'),
@@ -785,7 +785,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         rejected: z
           .preprocess(oneAsList, z.array(z.union([z.string().min(1).max(200), z.number().int().positive()])).max(MAX_NOTED))
           .optional()
-          .describe("References Henrik rejects: a label from a strip, a file name, or a reference id."),
+          .describe("References the user rejects: a label from a strip, a file name, or a reference id."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -818,7 +818,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       // The thumbnail of a reference: from the history or a picker session, else from Cosmos.
       const known = knownTiles();
       const inHistory = new Map<string, HistoryItem>();
-      for (const entry of await ctx.picks.history(ctx.username)) {
+      for (const entry of await ctx.picks.history(ctx.userId)) {
         for (const item of [...entry.picked, ...entry.passed]) if (!inHistory.has(item.id)) inHistory.set(item.id, item);
       }
       // "absent": Cosmos says that the id does not exist. "failed": Cosmos could not be asked.
@@ -858,7 +858,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         return errorResult(`Nothing was recorded: Cosmos has no reference with the id ${missing.join(", ")}. Read the strip or the file name again.`);
       }
       try {
-        await ctx.picks.noteReferences(ctx.username, task, picks, passes);
+        await ctx.picks.noteReferences(ctx.userId, task, picks, passes);
       } catch (error) {
         ctx.log({ level: "error", event: "history_write_failed", error: (error as Error).message });
         return errorResult("The server could not store this. Try again later.");
@@ -868,7 +868,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const name = task.trim();
       const list = (noted: HistoryItem[]) => noted.map((item) => `[${item.id}]`).join(", ");
       const lines: string[] = [];
-      if (picks.length) lines.push(`Recorded ${picks.length} pasted ${picks.length === 1 ? "reference" : "references"} as Henrik's picks for "${name}": ${list(picks)}.`);
+      if (picks.length) lines.push(`Recorded ${picks.length} pasted ${picks.length === 1 ? "reference" : "references"} as the user's picks for "${name}": ${list(picks)}.`);
       if (passes.length) lines.push(`Marked ${passes.length} ${passes.length === 1 ? "reference" : "references"} as passed for "${name}": ${list(passes)}. Do not build from ${passes.length === 1 ? "it" : "them"}.`);
       if (missing.length) lines.push(`Left out (Cosmos has no reference with this id): ${missing.join(", ")}.`);
       if (picks.length) {
@@ -882,7 +882,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           `2. Build each variant. ${BUILD_TEXT}`,
           `3. Show. ${SHOW_TEXT}`,
           "",
-          "When Henrik says later that he does not want a reference, or did not like what came of it, call note_references again with it in rejected.",
+          "When the user says later that they do not want a reference, or did not like what came of it, call note_references again with it in rejected.",
         );
       }
       return {
@@ -899,7 +899,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     {
       title: "Clear the pick history",
       description:
-        "Delete Henrik's pick history: what he picked and passed per task. Use it only when Henrik asks. With a task, only the entries " +
+        "Delete the user's pick history: what they picked and passed per task. Use it only when the user asks. With a task, only the entries " +
         "of that task (the name as contact_sheet history shows it); without, all of it.",
       inputSchema: {
         task: z.string().min(1).max(200).optional().describe("The task name. Leave it out to delete all."),
@@ -908,7 +908,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     },
     async ({ task }) => {
       try {
-        const removed = await ctx.picks.clearHistory(ctx.username, task);
+        const removed = await ctx.picks.clearHistory(ctx.userId, task);
         const text = task
           ? removed > 0
             ? `Deleted ${removed} history ${removed === 1 ? "entry" : "entries"} of the task "${task}".`

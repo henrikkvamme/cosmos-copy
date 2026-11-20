@@ -242,7 +242,7 @@ export class Pages {
         prefetchPickImages(session);
         await this.picks.save();
         try {
-          await this.picks.addHistory(session.username, historyEntry(session));
+          await this.picks.addHistory(session.owner, historyEntry(session));
         } catch (error) {
           this.log({ level: "error", event: "history_write_failed", error: (error as Error).message });
         }

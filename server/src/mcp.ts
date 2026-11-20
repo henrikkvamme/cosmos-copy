@@ -16,8 +16,8 @@ export function buildInstructions(username: string, slug: string, collection?: C
     : url;
   return [
     `This server gives read-only access to the public Cosmos (cosmos.so) collection ${what}.`,
-    "The collection holds Henrik's saved design references: images and videos of UI, motion, layout, type and visual style that he saved as examples of what he likes.",
-    "Use it when you need visual inspiration for design work, or when Henrik mentions a reference he saved.",
+    "The collection holds the user's saved design references: images and videos of UI, motion, layout, type and visual style that they saved as examples of what they like.",
+    "Use it when you need visual inspiration for design work, or when the user mentions a reference they saved.",
     "search_references and list_references return text only. Call get_reference with an id to see the image.",
   ].join(" ");
 }
@@ -193,9 +193,9 @@ export function buildServer(username: string, slug: string, instructions: string
     {
       title: "Search Cosmos references",
       description:
-        "Search Henrik's saved Cosmos design references (images and videos of UI, motion, layout and visual style " +
-        "that he saved to a public cosmos.so collection). Use it when you need visual inspiration for a design, or " +
-        'the reference Henrik mentioned ("like that reference I saved"). The query matches words in the description, ' +
+        "Search the user's saved Cosmos design references (images and videos of UI, motion, layout and visual style " +
+        "that they saved to a public cosmos.so collection). Use it when you need visual inspiration for a design, or " +
+        'the reference the user mentioned ("like that reference I saved"). The query matches words in the description, ' +
         "title, author and source URL. Case does not matter and every word must match, so use few words. Many " +
         "references have no description: when a search finds nothing, call list_references and look at the items. " +
         "With no query it returns the newest saved references. The result is text only: call get_reference with an " +
@@ -232,7 +232,7 @@ export function buildServer(username: string, slug: string, instructions: string
     {
       title: "List Cosmos references",
       description:
-        "List Henrik's saved Cosmos design references, newest saved first, one page at a time. Use it to see what the " +
+        "List the user's saved Cosmos design references, newest saved first, one page at a time. Use it to see what the " +
         "collection has, or when search_references finds nothing because a reference has no description. Give the " +
         "nextCursor of a result as cursor to get the next page. The result is text only: call get_reference with an " +
         "id to see the image.",
@@ -275,9 +275,9 @@ export function buildServer(username: string, slug: string, instructions: string
     {
       title: "Get and see one Cosmos reference",
       description:
-        "Get one of Henrik's saved Cosmos design references by id, with its metadata and the visual as an image you " +
+        "Get one of the user's saved Cosmos design references by id, with its metadata and the visual as an image you " +
         "can see. Use it after search_references or list_references, before you describe a reference or copy its " +
-        "style, and when Henrik gives you a cosmos.so/e/<id> link. For an image you get the image. For a video you " +
+        "style, and when the user gives you a cosmos.so/e/<id> link. For an image you get the image. For a video you " +
         "get its thumbnail, and the text gives the MP4 URL.",
       inputSchema: { id: idSchema },
       annotations: { readOnlyHint: true, openWorldHint: true },

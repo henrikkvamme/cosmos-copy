@@ -1,5 +1,5 @@
 # Build context: this directory (server/).
-FROM node:22-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -7,14 +7,14 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 ENV NODE_ENV=production PORT=3000 DATA_DIR=/data
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY pages ./pages
-# Linked accounts (links.json), pick sessions, variant screenshots and the pick history, all mode 600. Mount a named volume here. A new named volume takes the
+# Linked accounts (links.json), the sign-in database (auth.db), pick sessions, variant screenshots and the pick history, all mode 600. Mount a named volume here. A new named volume takes the
 # owner of this directory (node), so the server can write it. Do not back up this volume: it holds
 # the Cosmos login tokens.
 RUN mkdir -p /data && chown node:node /data && chmod 700 /data

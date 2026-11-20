@@ -2,7 +2,11 @@
 //
 //   DATA_DIR/picks.json               sessions and boards, keyed by the SHA-256 hash of their id
 //   DATA_DIR/boards/<hash>/<n>.webp   the screenshots of a board
-//   DATA_DIR/history/<username>.json  the pick history of one user, newest task first
+//   DATA_DIR/history/<owner>.json  the pick history of one user, newest task first
+//   DATA_DIR/history-images/<owner>/  the final screenshots of the style records
+//
+// The owner is the Cosmos user id of the linked account. Older data used the username: load()
+// moves it.
 //
 // A session id or board id is a bearer secret, like a device key: 32 random bytes in base64url.
 // The store keeps only its hash. Never log an id.
@@ -45,13 +49,13 @@ export interface Tile {
 }
 
 export interface Session {
-  username: string;
+  owner: string;
   task: string;
   createdAt: string;
   updatedAt: string;
   status: "open" | "done";
   tiles: Tile[];
-  /** Ids in the order Henrik picked them. */
+  /** Ids in the order the user picked them. */
   picked: string[];
   /** Ids whose image did not load in the picker. They do not count as passed. */
   hidden: string[];
@@ -76,7 +80,7 @@ export interface Variant {
 }
 
 export interface Board {
-  username: string;
+  owner: string;
   task: string;
   createdAt: string;
   uploadHash: string;
@@ -89,7 +93,7 @@ export interface HistoryItem {
 }
 
 /**
- * The style record of a task: the design Henrik accepted. It holds its own copy of the
+ * The style record of a task: the design the user accepted. It holds its own copy of the
  * references, so later changes to picked and passed do not change it.
  */
 export interface HistoryResult {
@@ -100,7 +104,7 @@ export interface HistoryResult {
   variant: string;
   took: { id: string; thumb: string; what: string }[];
   deviations: string;
-  /** The file of the final screenshot in history-images/<username>/. */
+  /** The file of the final screenshot in history-images/<owner>/. */
   file: string;
   image: { w: number; h: number };
 }
@@ -174,18 +178,42 @@ export class PickStore {
     this.writer = new Writer(() => writeFileAtomic(this.file, JSON.stringify(this.data) + "\n"));
   }
 
-  async load(log: Log): Promise<void> {
+  /** `legacyOwners`: username in lower case to Cosmos user id, for data that was stored under the username. */
+  /** Returns true when all data of the legacy owners is under their user id now. */
+  async load(log: Log, legacyOwners: Map<string, string> = new Map()): Promise<boolean> {
+    let complete = await this.moveLegacyFiles(log, legacyOwners);
     let text: string;
     try {
       text = await readFile(this.file, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") log({ level: "error", event: "picks_unreadable", error: (error as Error).message });
-      return;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return complete;
+      log({ level: "error", event: "picks_unreadable", error: (error as Error).message });
+      return false;
     }
     try {
       const parsed = JSON.parse(text) as PicksFile;
       if (parsed?.version !== 1 || typeof parsed.sessions !== "object" || typeof parsed.boards !== "object") throw new Error("unknown format");
+      let moved = 0;
+      for (const group of [parsed.sessions, parsed.boards] as Record<string, { owner?: string; username?: string }>[]) {
+        for (const [hash, item] of Object.entries(group)) {
+          if (typeof item.owner === "string") continue;
+          const owner = legacyOwners.get(String(item.username ?? "").toLowerCase());
+          // Without a linked account nobody can reach the item.
+          if (!owner) delete group[hash];
+          else {
+            item.owner = owner;
+            delete item.username;
+          }
+          moved++;
+        }
+      }
       this.data = parsed;
+      if (moved) {
+        await this.save().catch((error: unknown) => {
+          complete = false;
+          log({ level: "error", event: "picks_write_failed", error: (error as Error).message });
+        });
+      }
       log({ event: "picks_loaded", sessions: Object.keys(parsed.sessions).length, boards: Object.keys(parsed.boards).length });
     } catch (error) {
       const aside = `${this.file}.broken-${Date.now()}`;
@@ -193,10 +221,73 @@ export class PickStore {
       await rename(this.file, aside).catch(() => undefined);
     }
     await this.prune(log);
+    return complete;
   }
 
   save(): Promise<void> {
     return this.writer.save();
+  }
+
+  /** Moves the history and the result images of a username to the Cosmos user id. An existing target stays. */
+  private async moveLegacyFiles(log: Log, legacyOwners: Map<string, string>): Promise<boolean> {
+    let complete = true;
+    for (const [name, owner] of legacyOwners) {
+      const moves: [string, string][] = [
+        [this.historyFile(name), this.historyFile(owner)],
+        [this.resultDir(name), this.resultDir(owner)],
+      ];
+      for (const [from, to] of moves) {
+        if (from === to) continue;
+        const exists = (path: string) => stat(path).then(() => true, () => false);
+        if (!(await exists(from))) continue;
+        try {
+          // The target exists when an earlier move failed and new data came in under the user id.
+          // Then the old data goes into the target: nothing is left under the username.
+          if (!(await exists(to))) await rename(from, to);
+          else if ((await stat(from)).isDirectory()) {
+            for (const file of await readdir(from)) {
+              if (await exists(join(to, file))) await rm(join(from, file), { force: true });
+              else await rename(join(from, file), join(to, file));
+            }
+            await rm(from, { recursive: true });
+          } else {
+            const newer = JSON.parse(await readFile(to, "utf8")) as { entries?: unknown[] };
+            const older = JSON.parse(await readFile(from, "utf8")) as { entries?: unknown[] };
+            if (!Array.isArray(newer.entries)) throw new Error("unknown format");
+            newer.entries.push(...(Array.isArray(older.entries) ? older.entries : []));
+            await writeFileAtomic(to, JSON.stringify(newer) + "\n");
+            await rm(from);
+          }
+          log({ event: "picks_owner_moved" });
+        } catch (error) {
+          complete = false;
+          log({ level: "error", event: "picks_owner_move_failed", error: (error as Error).message });
+        }
+      }
+    }
+    return complete;
+  }
+
+  /** Deletes all data of an owner: sessions, boards with their screenshots, the history and its images. */
+  async deleteOwner(owner: string, log: Log): Promise<void> {
+    const key = owner.toLowerCase();
+    for (const [hash, session] of Object.entries(this.data.sessions)) {
+      if (session.owner.toLowerCase() !== key) continue;
+      delete this.data.sessions[hash];
+      for (const finish of [...(this.waiters.get(hash) ?? [])]) finish();
+    }
+    for (const [hash, board] of Object.entries(this.data.boards)) {
+      if (board.owner.toLowerCase() === key) await this.deleteBoard(hash);
+    }
+    const file = this.histories.get(key);
+    if (file) file.entries.splice(0, file.entries.length);
+    this.histories.delete(key);
+    this.historyWriters.delete(key);
+    this.savedImages.delete(key);
+    await rm(this.historyFile(key), { force: true }).catch(() => undefined);
+    await rm(this.resultDir(key), { recursive: true, force: true }).catch(() => undefined);
+    await this.save().catch((error: unknown) => log({ level: "error", event: "picks_write_failed", error: (error as Error).message }));
+    log({ event: "owner_deleted" });
   }
 
   /** Deletes expired sessions and boards. */
@@ -222,14 +313,14 @@ export class PickStore {
 
   // ---- Sessions ----
 
-  createSession(username: string, task: string, tiles: Tile[]): { id: string; session: Session } {
+  createSession(owner: string, task: string, tiles: Tile[]): { id: string; session: Session } {
     const mine = Object.entries(this.data.sessions)
-      .filter(([, s]) => s.username.toLowerCase() === username.toLowerCase())
+      .filter(([, s]) => s.owner.toLowerCase() === owner.toLowerCase())
       .sort(([, a], [, b]) => a.updatedAt.localeCompare(b.updatedAt));
     while (mine.length >= MAX_SESSIONS_PER_USER) delete this.data.sessions[mine.shift()![0]];
     const id = newId();
     const now = new Date().toISOString();
-    const session: Session = { username, task, createdAt: now, updatedAt: now, status: "open", tiles, picked: [], hidden: [], rounds: 0 };
+    const session: Session = { owner, task, createdAt: now, updatedAt: now, status: "open", tiles, picked: [], hidden: [], rounds: 0 };
     this.data.sessions[hashId(id)] = session;
     return { id, session };
   }
@@ -243,9 +334,9 @@ export class PickStore {
   }
 
   /** The newest sessions of a user, newest first. */
-  sessionsOf(username: string): Session[] {
+  sessionsOf(owner: string): Session[] {
     return Object.values(this.data.sessions)
-      .filter((s) => s.username.toLowerCase() === username.toLowerCase())
+      .filter((s) => s.owner.toLowerCase() === owner.toLowerCase())
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
@@ -280,14 +371,14 @@ export class PickStore {
 
   // ---- Boards ----
 
-  createBoard(username: string, task: string, variants: Variant[]): { id: string; uploadId: string; board: Board } {
+  createBoard(owner: string, task: string, variants: Variant[]): { id: string; uploadId: string; board: Board } {
     const mine = Object.entries(this.data.boards)
-      .filter(([, b]) => b.username.toLowerCase() === username.toLowerCase())
+      .filter(([, b]) => b.owner.toLowerCase() === owner.toLowerCase())
       .sort(([, a], [, b]) => a.createdAt.localeCompare(b.createdAt));
     while (mine.length >= MAX_BOARDS_PER_USER) void this.deleteBoard(mine.shift()![0]);
     const id = newId();
     const uploadId = newId();
-    const board: Board = { username, task, createdAt: new Date().toISOString(), uploadHash: hashId(uploadId), variants };
+    const board: Board = { owner, task, createdAt: new Date().toISOString(), uploadHash: hashId(uploadId), variants };
     this.data.boards[hashId(id)] = board;
     return { id, uploadId, board };
   }
@@ -336,8 +427,8 @@ export class PickStore {
 
   // ---- History ----
 
-  private historyFile(username: string): string {
-    return join(this.dir, "history", `${username.toLowerCase()}.json`);
+  private historyFile(owner: string): string {
+    return join(this.dir, "history", `${owner.toLowerCase()}.json`);
   }
 
   /**
@@ -345,8 +436,8 @@ export class PickStore {
    * callers change its entries in one synchronous step after this returns, so two changes at
    * the same time cannot lose each other.
    */
-  private async historyOf(username: string): Promise<HistoryFile> {
-    const key = username.toLowerCase();
+  private async historyOf(owner: string): Promise<HistoryFile> {
+    const key = owner.toLowerCase();
     let file = this.histories.get(key);
     if (!file) {
       let loaded: HistoryFile;
@@ -367,25 +458,25 @@ export class PickStore {
   }
 
   /** A copy of the history, newest first. */
-  async history(username: string): Promise<HistoryEntry[]> {
-    return [...(await this.historyOf(username)).entries];
+  async history(owner: string): Promise<HistoryEntry[]> {
+    return [...(await this.historyOf(owner)).entries];
   }
 
-  async addHistory(username: string, entry: HistoryEntry): Promise<void> {
-    const file = await this.historyOf(username);
+  async addHistory(owner: string, entry: HistoryEntry): Promise<void> {
+    const file = await this.historyOf(owner);
     file.entries.unshift({ ...entry, passed: entry.passed.slice(0, MAX_PASSED_PER_TASK) });
     if (file.entries.length > MAX_HISTORY_TASKS) file.entries.length = MAX_HISTORY_TASKS;
-    await this.saveHistory(username);
+    await this.saveHistory(owner);
   }
 
   /**
-   * Records what an agent reports outside a pick session: references Henrik pasted (picks) and
-   * references he rejects (passed). It changes the newest entry of the task (by name, case does
+   * Records what an agent reports outside a pick session: references the user pasted (picks) and
+   * references they reject (passed). It changes the newest entry of the task (by name, case does
    * not matter) when that entry is younger than a week, else it adds an entry. A rejected
    * reference moves from picked to passed.
    */
-  async noteReferences(username: string, task: string, pasted: HistoryItem[], rejected: HistoryItem[]): Promise<{ picked: number; passed: number }> {
-    const file = await this.historyOf(username);
+  async noteReferences(owner: string, task: string, pasted: HistoryItem[], rejected: HistoryItem[]): Promise<{ picked: number; passed: number }> {
+    const file = await this.historyOf(owner);
     const wanted = task.trim().toLowerCase();
     const cutoff = Date.now() - NOTE_MERGE_MS;
     let entry = file.entries.find((e) => e.task.trim().toLowerCase() === wanted && Date.parse(e.at) >= cutoff);
@@ -404,27 +495,27 @@ export class PickStore {
     entry.picked = entry.picked.filter((p) => !rejectedIds.has(p.id)).slice(-MAX_PICKED_PER_TASK);
     // Rejected references go first, so the history sheet shows them before the other passes.
     entry.passed = [...rejected, ...entry.passed.filter((p) => !rejectedIds.has(p.id))].slice(0, MAX_PASSED_PER_TASK);
-    await this.saveHistory(username);
+    await this.saveHistory(owner);
     return { picked: entry.picked.length, passed: entry.passed.length };
   }
 
   // ---- Style records ----
 
-  private resultDir(username: string): string {
-    return join(this.dir, "history-images", username.toLowerCase().replace(/[^a-z0-9_.-]/g, "_"));
+  private resultDir(owner: string): string {
+    return join(this.dir, "history-images", owner.toLowerCase().replace(/[^a-z0-9_.-]/g, "_"));
   }
 
   /** Stores a final screenshot and returns its file name. Call noteResult with it at once. */
-  async writeResultImage(username: string, data: Buffer): Promise<string> {
+  async writeResultImage(owner: string, data: Buffer): Promise<string> {
     const file = `${newId()}.jpg`;
-    await mkdir(this.resultDir(username), { recursive: true, mode: 0o700 });
-    await writeFileAtomic(join(this.resultDir(username), file), data);
+    await mkdir(this.resultDir(owner), { recursive: true, mode: 0o700 });
+    await writeFileAtomic(join(this.resultDir(owner), file), data);
     return file;
   }
 
-  async readResultImage(username: string, file: string): Promise<Buffer | undefined> {
+  async readResultImage(owner: string, file: string): Promise<Buffer | undefined> {
     if (!RESULT_FILE_PATTERN.test(file)) return undefined;
-    return readFile(join(this.resultDir(username), file)).catch(() => undefined);
+    return readFile(join(this.resultDir(owner), file)).catch(() => undefined);
   }
 
   /**
@@ -433,8 +524,8 @@ export class PickStore {
    * the task without a record and younger than a week, or a new entry. A record of another
    * canvas is never replaced, so two projects with the same task name keep their own records.
    */
-  async noteResult(username: string, task: string, project: string, result: HistoryResult): Promise<{ replaced: boolean }> {
-    const file = await this.historyOf(username);
+  async noteResult(owner: string, task: string, project: string, result: HistoryResult): Promise<{ replaced: boolean }> {
+    const file = await this.historyOf(owner);
     const wanted = task.trim().toLowerCase();
     const cutoff = Date.now() - NOTE_MERGE_MS;
     let entry = file.entries.find((e) => e.result?.board === result.board);
@@ -447,7 +538,7 @@ export class PickStore {
     }
     entry.project = project;
     entry.result = result;
-    await this.saveHistory(username);
+    await this.saveHistory(owner);
     return { replaced };
   }
 
@@ -456,11 +547,11 @@ export class PickStore {
    * disk and the entries in memory are the same. This one step covers a cleared task, an expired
    * entry, an entry over the limit, a replaced record and a write that was interrupted.
    */
-  private async dropUnusedImages(username: string): Promise<void> {
-    const dir = this.resultDir(username);
+  private async dropUnusedImages(owner: string): Promise<void> {
+    const dir = this.resultDir(owner);
     const names = await readdir(dir).catch(() => [] as string[]);
     if (names.length === 0) return;
-    const key = username.toLowerCase();
+    const key = owner.toLowerCase();
     // A file stays while the entries in memory or the last file on disk name it. They differ when
     // a save failed or is still to come, and then the file on disk can still need the old image.
     const named = (name: string) =>
@@ -474,18 +565,18 @@ export class PickStore {
   }
 
   /** Deletes the entries of one task (by name, case does not matter), or all. Returns the number deleted. */
-  async clearHistory(username: string, task?: string): Promise<number> {
-    const file = await this.historyOf(username);
+  async clearHistory(owner: string, task?: string): Promise<number> {
+    const file = await this.historyOf(owner);
     const before = file.entries.length;
     const wanted = task?.trim().toLowerCase();
     const kept = wanted ? file.entries.filter((entry) => entry.task.trim().toLowerCase() !== wanted) : [];
     file.entries.splice(0, file.entries.length, ...kept);
-    await this.saveHistory(username);
+    await this.saveHistory(owner);
     return before - kept.length;
   }
 
-  private async saveHistory(username: string): Promise<void> {
-    const key = username.toLowerCase();
+  private async saveHistory(owner: string): Promise<void> {
+    const key = owner.toLowerCase();
     let writer = this.historyWriters.get(key);
     if (!writer) {
       writer = new Writer(async () => {
@@ -500,6 +591,6 @@ export class PickStore {
       this.historyWriters.set(key, writer);
     }
     await writer.save();
-    await this.dropUnusedImages(username);
+    await this.dropUnusedImages(owner);
   }
 }
