@@ -348,12 +348,12 @@ try {
       stored = await readStore();
     }
     check("delete account: the Cosmos account with no device and no user is deleted, token included", !stored.accounts[COSMOS_ID] && !JSON.stringify(stored).includes(cosmosToken), Object.keys(stored.accounts));
-    for (let attempt = 0; attempt < 30 && (await exists(historyFile(COSMOS_ID))); attempt++) await new Promise((resolve) => setTimeout(resolve, 100));
+    for (let attempt = 0; attempt < 30 && ((await exists(historyFile(COSMOS_ID))) || (await exists(imageDir(COSMOS_ID)))); attempt++) await new Promise((resolve) => setTimeout(resolve, 100));
     check("delete account: the history and its images are deleted", !(await exists(historyFile(COSMOS_ID))) && !(await exists(imageDir(COSMOS_ID))));
     const me = await ada.page.get("/account/api/me");
     check("delete account: the session is over", me.json.user === null, me.json);
     const call = await rpc(ada.tokens.access_token, callTool("list_collections"));
-    check("delete account: a token that is still valid reads nothing", call.status === 401 || call.json.result?.isError === true, { status: call.status, json: call.json });
+    check("delete account: a token that is still valid gives 401", call.status === 401, { status: call.status, json: call.json });
   }
 
   // Logs.

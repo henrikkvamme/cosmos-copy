@@ -63,6 +63,8 @@ export interface Auth {
   user(req: IncomingMessage): Promise<SignedInUser | undefined>;
   /** Checks the bearer token of an MCP request: signature, issuer, audience and expiry. */
   bearer(req: IncomingMessage): Promise<BearerCheck>;
+  /** True while the user exists. An access token outlives its user by up to its lifetime. */
+  exists(userId: string): Promise<boolean>;
   grants(userId: string): Promise<Grant[]>;
   /** Ends the grant of one client: its consent and its tokens. */
   revoke(userId: string, clientId: string): Promise<void>;
@@ -148,6 +150,9 @@ export async function createAuth(config: AuthConfig, log: Log): Promise<Auth> {
       const challenge = response.headers.get("www-authenticate");
       if (challenge) out["www-authenticate"] = challenge;
       return { status: response.status === 200 ? 401 : response.status, headers: out, body: response.status === 200 ? "{}" : await response.text() };
+    },
+    async exists(userId) {
+      return Boolean(await context.internalAdapter.findUserById(userId));
     },
     async grants(userId) {
       const consents = (await context.adapter.findMany({ model: "oauthConsent", where: [{ field: "userId", value: userId }] })) as {

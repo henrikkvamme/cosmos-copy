@@ -102,7 +102,9 @@ export class LinkStore {
    * such an account was stored under the username and must move to the user id.
    */
   legacyOwners = new Map<string, string>();
-  /** Called with the Cosmos user id of each account that was deleted, so its other data can go. */
+  /** Accounts that were deleted in memory. Their other data goes after the next write of the file. */
+  private readonly dropped: string[] = [];
+  /** Called with the Cosmos user id of each account whose deletion is on disk, so its other data can go. */
   onAccountDeleted: (userId: string) => void = () => undefined;
 
   constructor(readonly dir: string) {
@@ -159,8 +161,23 @@ export class LinkStore {
     return run;
   }
 
-  private writeFile(): Promise<void> {
-    return writeFileAtomic(this.file, JSON.stringify(this.data, null, 2) + "\n");
+  private async writeFile(): Promise<void> {
+    const text = JSON.stringify(this.data, null, 2) + "\n";
+    const dropped = this.dropped.splice(0);
+    try {
+      await writeFileAtomic(this.file, text);
+    } catch (error) {
+      this.dropped.unshift(...dropped);
+      throw error;
+    }
+    // The file no longer has these accounts, so their other data can go. Before the write a
+    // restart would bring the account back, and its data must then still be there.
+    for (const userId of dropped) if (!this.data.accounts[userId]) this.onAccountDeleted(userId);
+  }
+
+  /** The signed-in users of all accounts. */
+  linkedUsers(): string[] {
+    return [...new Set(Object.values(this.data.accounts).flatMap((account) => account.users))];
   }
 
   private saveInBackground(log: (fields: Record<string, unknown>) => void): void {
@@ -354,7 +371,7 @@ export class LinkStore {
       delete this.data.accounts[key];
       for (const [hash, ticket] of this.tickets) if (ticket.userId === account.userId) this.tickets.delete(hash);
       dropped = true;
-      this.onAccountDeleted(account.userId);
+      this.dropped.push(account.userId);
     }
     return dropped;
   }

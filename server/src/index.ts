@@ -226,6 +226,11 @@ async function handleSignedIn(req: IncomingMessage, res: ServerResponse): Promis
     res.writeHead(checked.status, checked.headers).end(checked.body);
     return [];
   }
+  // The token is checked without the database, so it can outlive its user. A deleted user gets nothing.
+  if (!(await auth.exists(checked.userId))) {
+    sendRpcError(res, 401, -32000, "This account was deleted. Sign in again.", { "www-authenticate": `Bearer error="invalid_token", resource_metadata="${PUBLIC_URL}/.well-known/oauth-protected-resource/mcp"` });
+    return [];
+  }
   if (!userLimiter.hit(checked.userId)) {
     sendRpcError(res, 429, -32000, "Too many requests. Try again later.", { "retry-after": "900" });
     return [];
@@ -467,6 +472,13 @@ if (PUBLIC_URL && authEnv.secret && ((authEnv.id && authEnv.key) || TEST_LOGIN))
     },
     log,
   );
+  // A user that was deleted while the link file could not be written is still in the file.
+  let stale = 0;
+  for (const userId of store.linkedUsers()) if (!(await auth.exists(userId)) && store.unbindUser(userId)) stale++;
+  if (stale) {
+    await store.save().catch((error: unknown) => log({ level: "error", event: "store_write_failed", error: (error as Error).message }));
+    log({ event: "stale_users_removed", users: stale });
+  }
   accountPages = new AccountPages(auth, store, PUBLIC_URL, connectLimiter, log);
   log({ event: "auth_ready", testLogin: TEST_LOGIN });
 } else {
