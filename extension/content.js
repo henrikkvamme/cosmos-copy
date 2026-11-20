@@ -112,13 +112,11 @@
   }
 
   function findTarget() {
-    picked = null;
     const underCursor = elementsUnderCursor();
     // 1 and 2. A Cosmos card under the cursor, or the open element page.
     const onCosmos = cosmosTarget(underCursor);
     if (onCosmos) {
-      mark(onCosmos.el);
-      return { elementId: onCosmos.elementId };
+      return { elementId: onCosmos.elementId, copy: mark(onCosmos.el) };
     }
 
     // 3. Any other site: the image or video at the cursor.
@@ -132,8 +130,7 @@
     for (const el of atCursor.length ? atCursor : largestMedia()) {
       const media = mediaSource(el);
       if (!media) continue;
-      mark(el);
-      return { media };
+      return { media, copy: mark(el) };
     }
     return { error: "No image or video found. Hover one and try again." };
   }
@@ -141,7 +138,10 @@
   // ---- What the user sees of a copy: a lime frame on the copied element, and its picture in the toast. ----
   const LIME = "#c6e33a";
   const calm = matchMedia("(prefers-reduced-motion: reduce)");
-  let picked = null;
+  // The picture of each copy by its number. Two copies can run at the same time, and each toast
+  // must show the picture of its own copy.
+  const pictures = new Map();
+  let copies = 0;
 
   // The round corners of the element. Often a parent of the same size cuts them, not the element.
   function cornersOf(el, box) {
@@ -155,11 +155,14 @@
   }
 
   // Shows which element is copied: a frame that closes in on it, and a short flash of light.
+  // Returns the number of the copy.
   function mark(el) {
-    picked = el ?? null;
-    if (!el?.isConnected) return;
+    const copy = ++copies;
+    if (!el?.isConnected) return copy;
+    pictures.set(copy, preview(el));
+    pictures.delete(copy - 8);
     const box = el.getBoundingClientRect();
-    if (box.width < 8 || box.height < 8) return;
+    if (box.width < 8 || box.height < 8) return copy;
     const frame = document.createElement("div");
     Object.assign(frame.style, {
       position: "fixed",
@@ -189,8 +192,12 @@
       () => frame.remove(),
     );
     if (!calm.matches) {
-      el.animate([{ filter: "none" }, { filter: "brightness(1.35) saturate(1.15)", offset: 0.25 }, { filter: "none" }], { duration: 520, easing: "ease-out" });
+      // The light goes after the filter that the page has on the element, so a blur stays.
+      const own = getComputedStyle(el).filter;
+      const lit = `${own === "none" ? "" : `${own} `}brightness(1.35) saturate(1.15)`;
+      el.animate([{ filter: own }, { filter: lit, offset: 0.25 }, { filter: own }], { duration: 520, easing: "ease-out" });
     }
+    return copy;
   }
 
   // A small picture of the copied element. A canvas shows the current frame of a video too, and it
@@ -214,7 +221,7 @@
   }
 
   let toastTimer;
-  function toast(text, isError) {
+  function toast(text, isError, copy) {
     let el = document.getElementById("cosmos-copy-toast");
     if (!el) {
       el = document.createElement("div");
@@ -240,7 +247,7 @@
       }
     }
     // An error shows no picture: nothing was copied.
-    const picture = !isError && picked ? preview(picked) : null;
+    const picture = (!isError && pictures.get(copy)) || null;
     const label = document.createElement("span");
     label.textContent = text;
     el.replaceChildren(...(picture ? [picture, label] : [label]));
@@ -277,8 +284,8 @@
         e.stopImmediatePropagation();
         swallowed = true;
         if (e.repeat) return;
-        mark(found.el);
-        chrome.runtime.sendMessage({ type: "cosmos-copy:copy", target, add: e.shiftKey }).catch(() => {
+        const copy = mark(found.el);
+        chrome.runtime.sendMessage({ type: "cosmos-copy:copy", target, copy, add: e.shiftKey }).catch(() => {
           toast("TasteRef was updated. Reload the page to copy.", true);
         });
       },
@@ -301,6 +308,6 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg.type === "cosmos-copy:target") reply(findTarget());
-    if (msg.type === "cosmos-copy:toast") toast(msg.text, msg.isError);
+    if (msg.type === "cosmos-copy:toast") toast(msg.text, msg.isError, msg.copy);
   });
 })();

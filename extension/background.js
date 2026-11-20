@@ -44,8 +44,9 @@ async function askTab(tabId, message) {
   }
 }
 
-function toast(tabId, text, isError = false) {
-  chrome.tabs.sendMessage(tabId, { type: "cosmos-copy:toast", text, isError }).catch(() => {});
+// `copy` is the number that the content script gave the copy: its toast shows the picture of that copy.
+function toast(tabId, text, isError = false, copy) {
+  chrome.tabs.sendMessage(tabId, { type: "cosmos-copy:toast", text, isError, copy }).catch(() => {});
 }
 
 async function native(message) {
@@ -185,7 +186,7 @@ async function copyReference(tab, found, add = false) {
     if (!tab?.id) return;
     found ??= await withLimit(askTab(tab.id, { type: "cosmos-copy:target" }), "The page");
     if (found.error) throw new Error(found.error);
-    toast(tab.id, "Copying…");
+    toast(tab.id, "Copying…", false, found.copy);
 
     const elementId = found.elementId;
     const media = elementId ? await withLimit(cosmos.media(elementId), "Cosmos") : found.media;
@@ -217,7 +218,7 @@ async function copyReference(tab, found, add = false) {
     const size = (copied.bytes / 1024 / 1024).toFixed(1);
     const batch = copied.count > 1 ? ` - ${copied.count} on the clipboard` : "";
     const extra = kept.done.length ? `, ${kept.done.join(" and ")}` : "";
-    toast(tab.id, `Copied ${media.kind} (${size} MB)${batch}${extra}.`);
+    toast(tab.id, `Copied ${media.kind} (${size} MB)${batch}${extra}.`, false, found.copy);
     copyDone = true;
     if (saveFailed) setTimeout(showSaveFailed, 2600);
     if (kept.failed.length) {
@@ -288,7 +289,7 @@ const popupHandlers = {
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   // "c" or Shift+"c" on cosmos.so: the content script found a Cosmos element under the cursor.
   if (msg?.type === "cosmos-copy:copy" && sender.tab?.id && /^\d+$/.test(String(msg.target?.elementId ?? ""))) {
-    copyReference(sender.tab, { elementId: String(msg.target.elementId) }, msg.add === true);
+    copyReference(sender.tab, { elementId: String(msg.target.elementId), copy: Number(msg.copy) || undefined }, msg.add === true);
     return false;
   }
   const handler = popupHandlers[msg?.type];
