@@ -15,7 +15,7 @@ for dir in \
   cat > "$dir/com.henrikkvamme.cosmos_copy.json" <<JSON
 {
   "name": "com.henrikkvamme.cosmos_copy",
-  "description": "Cosmos Copy clipboard helper",
+  "description": "TasteRef clipboard helper",
   "path": "$ROOT/bin/cosmos-copy-host",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXT_ID/"]

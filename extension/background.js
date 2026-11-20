@@ -160,14 +160,14 @@ async function copyReference(tab, found, add = false) {
     const extra = kept.done.length ? `, ${kept.done.join(" and ")}` : "";
     toast(tab.id, `Copied ${media.kind} (${size} MB)${batch}${extra}.`);
     if (kept.failed.length) {
-      console.warn("Cosmos Copy:", kept.failed);
+      console.warn("TasteRef:", kept.failed);
       setTimeout(() => toast(tab.id, `Copied, but Cosmos failed (${kept.failed.join("; ")})`, true), 2600);
     }
   } catch (err) {
     const msg = String(err?.message ?? err);
     const hint = msg.includes("native messaging host") ? " Run install.sh in cosmos-copy." : "";
-    if (tab?.id) toast(tab.id, `Cosmos Copy: ${msg}${hint}`, true);
-    console.error("Cosmos Copy", err);
+    if (tab?.id) toast(tab.id, `TasteRef: ${msg}${hint}`, true);
+    console.error("TasteRef", err);
   } finally {
     slot.release(); // Also when a lookup failed before the copy.
   }

@@ -1,4 +1,4 @@
-// Native messaging host for the Cosmos Copy extension.
+// Native messaging host for the TasteRef extension.
 // It downloads a media URL, saves it under ~/Downloads/Cosmos References and
 // puts the file on the macOS clipboard, like a copy in Finder. Images also go
 // on the clipboard as PNG data, so apps that only take image data (such as

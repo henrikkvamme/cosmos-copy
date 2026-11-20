@@ -125,7 +125,7 @@
         swallowed = true;
         if (e.repeat) return;
         chrome.runtime.sendMessage({ type: "cosmos-copy:copy", target, add: e.shiftKey }).catch(() => {
-          toast("Cosmos Copy was updated. Reload the page to copy.", true);
+          toast("TasteRef was updated. Reload the page to copy.", true);
         });
       },
       { capture: true },

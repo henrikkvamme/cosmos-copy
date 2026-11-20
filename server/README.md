@@ -5,7 +5,7 @@ A remote, stateless MCP server (Streamable HTTP) for Cosmos (cosmos.so). It has 
 - **Public collection** (`/mcp/<username>/<slug>`): read-only, anonymous, no secret. It never uses
   a linked token.
 - **Vault** (`/mcp/<username>?key=<device key>`): all collections of a linked account, private ones
-  included, search across all of Cosmos, saves, and the design flow. The Cosmos Copy browser
+  included, search across all of Cosmos, saves, and the design flow. The TasteRef browser
   extension links the account: it relays the Cosmos login token to `POST /link`.
 - **Pages** (`/p/<id>`, `/v/<id>`): the picker and the variants canvas of the design flow. The id in
   the link is the secret.
@@ -181,7 +181,7 @@ A person signs in with Google (Better Auth). An MCP client gets access with OAut
 | `TRUST_PROXY` | on | The client IP is the last `X-Forwarded-For` entry (set by the Dokploy proxy). Set `0` when the server is reachable without a proxy. |
 | `LINK_RATE_LIMIT` | `30` | `/link` and `/unlink` requests per IP in 15 minutes. |
 | `KEY_FAILURE_LIMIT` | `20` | Vault requests with a wrong key per IP in 15 minutes. |
-| `PUBLIC_URL` | from the request | The public origin: the base of picker and canvas links, and the OAuth issuer and resource. Sign-in needs it, such as `https://cosmos-mcp.henrikkvamme.no`. Without it, the server uses the `Host` header and, behind the proxy, `X-Forwarded-Proto`. |
+| `PUBLIC_URL` | from the request | The public origin: the base of picker and canvas links, and the OAuth issuer and resource. Sign-in needs it, such as `https://tasteref.henrikkvamme.no`. Without it, the server uses the `Host` header and, behind the proxy, `X-Forwarded-Proto`. |
 | `BETTER_AUTH_SECRET` | none | Secret of Better Auth (32 random bytes or more). Sign-in is off without it. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | none | The Google OAuth client. Its redirect URI is `PUBLIC_URL/api/auth/callback/google`. Sign-in is off without them, and `POST /mcp` answers 503. |
 | `USER_RATE_LIMIT` | `600` | MCP requests of one signed-in user in 15 minutes. |

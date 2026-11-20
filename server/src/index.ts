@@ -68,7 +68,7 @@ if (TEST_LOGIN && (process.env.NODE_ENV === "production" || !PUBLIC_URL || !LOOP
 
 const NOT_LINKED =
   "The user is signed in, but no Cosmos account is linked to this sign-in yet, so the tools cannot work. " +
-  "Tell the user: install the Cosmos Copy browser extension, sign in on cosmos.so, open the extension and click " +
+  "Tell the user: install the TasteRef browser extension, sign in on cosmos.so, open the extension and click " +
   '"Connect account". Then call the tool again. No restart is needed.';
 
 let auth: Auth | undefined;
@@ -196,7 +196,7 @@ async function handleVault(req: IncomingMessage, res: ServerResponse, username: 
       res,
       401,
       -32001,
-      "Missing or wrong key. Use the MCP URL from the Cosmos Copy extension: /mcp/<username>?key=<device key>.",
+      "Missing or wrong key. Use the MCP URL from the TasteRef extension: /mcp/<username>?key=<device key>.",
     );
     return [];
   }
@@ -218,7 +218,7 @@ async function handleVault(req: IncomingMessage, res: ServerResponse, username: 
 /** The vault of the signed-in user. The bearer token names the user, and the store names the Cosmos account. */
 async function handleSignedIn(req: IncomingMessage, res: ServerResponse): Promise<string[]> {
   if (!auth) {
-    sendRpcError(res, 503, -32000, "Sign-in is not set up on this server. Use the MCP URL with the device key from the Cosmos Copy extension.");
+    sendRpcError(res, 503, -32000, "Sign-in is not set up on this server. Use the MCP URL with the device key from the TasteRef extension.");
     return [];
   }
   const checked = await auth.bearer(req);

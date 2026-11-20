@@ -264,7 +264,7 @@ async function loadSettings() {
 
 function show(view) {
   document.body.dataset.view = view;
-  $("title").textContent = view === "settings" ? "Settings" : "Cosmos Copy";
+  $("title").textContent = view === "settings" ? "Settings" : "TasteRef";
   if (view === "settings") loadSettings();
 }
 

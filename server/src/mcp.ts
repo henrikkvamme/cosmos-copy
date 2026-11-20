@@ -114,7 +114,7 @@ export function parseLabel(value: string | number): { id: string } | { bad: stri
 }
 
 /**
- * The id from the name of a file that Cosmos Copy saved, such as "cosmos-1277394779.mp4".
+ * The id from the name of a file that TasteRef saved, such as "cosmos-1277394779.mp4".
  * A video has no strip, and some clients give the agent the file name and not the pixels.
  * The name has no check digits, so the caller must check that the reference exists.
  */

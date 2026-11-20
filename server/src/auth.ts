@@ -86,7 +86,7 @@ export async function createAuth(config: AuthConfig, log: Log): Promise<Auth> {
   database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
 
   const auth = betterAuth({
-    appName: "Cosmos Copy",
+    appName: "TasteRef",
     baseURL: config.publicUrl,
     secret: config.secret,
     database,

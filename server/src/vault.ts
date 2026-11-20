@@ -466,7 +466,7 @@ export function buildVaultInstructions(username: string): string {
     "Use search_cosmos to find new references on all of Cosmos. Use save_reference only when the user asks you to save something.",
     "The list and search tools return text only. Call get_reference with an id to see the image.",
     "",
-    "First look at the images in the user's message. An image that they copied with Cosmos Copy has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65 · call note_references\": the reference id and two check digits. The strip is not part of the design.",
+    "First look at the images in the user's message. An image that they copied with TasteRef has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65 · call note_references\": the reference id and two check digits. The strip is not part of the design.",
     "A file that they attached with a name such as \"cosmos-1277394779.mp4\" is also a reference they copied: a video has no strip, so give its file name in place of a label.",
     "When a message has such images or files, call note_references with the task and the labels before you do other work. The call returns at once and needs no answer from the user, so make it also when they are away. The images are their picks: do not open a picker, and follow the steps in the result.",
     "When the user says that they do not want a reference, or that they did not like what came of it, call note_references with it in rejected.",

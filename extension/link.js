@@ -81,7 +81,7 @@ export function relay(reason) {
         await chrome.storage.local.set({ linkRetry: linkRetry + 1 });
       }
       await setState({ ok: false, reason: "error", error: String(err?.message ?? err) });
-      console.warn("Cosmos Copy link failed", reason, err);
+      console.warn("TasteRef link failed", reason, err);
     } finally {
       running = null;
     }

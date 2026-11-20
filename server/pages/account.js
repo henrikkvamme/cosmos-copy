@@ -119,7 +119,7 @@
             await reload();
           }),
         )
-      : el("p", {}, "No Cosmos account is linked. Open the Cosmos Copy extension in your browser and click ", el("strong", {}, "Connect account"), ".");
+      : el("p", {}, "No Cosmos account is linked. Open the TasteRef extension in your browser and click ", el("strong", {}, "Connect account"), ".");
     const clients = data.clients.length
       ? data.clients.map((client) =>
           el(
@@ -169,7 +169,7 @@
     const ticket = sessionStorage.getItem(TICKET_KEY);
     const expired = () => {
       sessionStorage.removeItem(TICKET_KEY);
-      show(el("h1", {}, "Start again from the extension"), el("p", {}, "This link has expired or was used. Open the Cosmos Copy extension and click Connect account."), foot());
+      show(el("h1", {}, "Start again from the extension"), el("p", {}, "This link has expired or was used. Open the TasteRef extension and click Connect account."), foot());
     };
     if (!ticket) return expired();
     const me = await api("/account/api/me");

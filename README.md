@@ -1,10 +1,13 @@
-# Cosmos Copy
+# TasteRef
 
-Copy a Cosmos image or video with one key, and paste it to an agent.
-Each copy also likes the element and saves it to a Cosmos collection.
-Agents search all your Cosmos collections, and all of Cosmos, through a remote MCP server.
-An agent can also show you references on a picker page, design from the ones you pick, and show
-its variants beside them on a canvas page.
+Show agents what you like, from any site.
+
+TasteRef is a browser extension and a hosted MCP server for sharing design references with AI
+agents. Press Option+Shift+C on any web page to copy the image or video under your cursor, then
+paste it into Claude Code, Codex or another agent. On cosmos.so, press C to copy the element, like
+it and save it to a Cosmos collection. Agents connect to the MCP server to search your saved
+references, show a picker page, design from your choices and show variants on a canvas page.
+Saved-reference search works through a linked Cosmos account today.
 
 ## Parts
 
@@ -12,7 +15,7 @@ its variants beside them on a canvas page.
 | --- | --- | --- |
 | Extension | `extension/` | Extension for Brave, Chrome or Ardia. On cosmos.so, the `C` key copies the element under the cursor, or the open element page. On other sites, the shortcut (default Option+Shift+C) does. It likes the element and saves it to the collection. The popup shows what is on the clipboard; settings sit behind the gear. |
 | Native helper | `host/` | Swift program for native messaging. It downloads the media to `~/Downloads/Cosmos References` and puts the file on the macOS clipboard. Images also go on the clipboard as PNG data. An image from Cosmos gets a thin strip with its id at the bottom. |
-| MCP server | `server/` | MCP server over streamable HTTP, hosted at `https://cosmos-mcp.henrikkvamme.no`. The vault at `/mcp/<username>?key=<device key>` reads all your collections, searches all of Cosmos, saves references and runs the design flow (picker, contact sheets, canvas). A public collection is also open without login at `/mcp/<username>/<collection-slug>`. |
+| MCP server | `server/` | MCP server over streamable HTTP, hosted at `https://tasteref.henrikkvamme.no`. The vault at `/mcp/<username>?key=<device key>` reads all your collections, searches all of Cosmos, saves references and runs the design flow (picker, contact sheets, canvas). A public collection is also open without login at `/mcp/<username>/<collection-slug>`. |
 
 ## Install the extension (macOS)
 
@@ -40,7 +43,7 @@ Open the extension and click the gear.
 1. Click "Connect account". A page opens: sign in with Google, check the Cosmos username and click
    "Link". Your Cosmos account is now linked to your Google sign-in.
 2. Click "Copy setup prompt" and paste it into any agent. The prompt adds the server
-   `https://cosmos-mcp.henrikkvamme.no/mcp` and starts the sign-in. The URL holds no secret: the
+   `https://tasteref.henrikkvamme.no/mcp` and starts the sign-in. The URL holds no secret: the
    agent's client opens the browser, and you allow it once. The account page
    (`/account` on the server) lists the apps with access and removes them.
 

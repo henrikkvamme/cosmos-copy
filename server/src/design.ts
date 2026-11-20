@@ -121,7 +121,7 @@ async function resultImage(source: Buffer): Promise<{ data: Buffer; w: number; h
 
 export interface DesignContext extends VaultContext {
   picks: PickStore;
-  /** The public origin of this server, such as https://cosmos-mcp.henrikkvamme.no. */
+  /** The public origin of this server, such as https://tasteref.henrikkvamme.no. */
   baseUrl: string;
   log(fields: Record<string, unknown>): void;
 }
