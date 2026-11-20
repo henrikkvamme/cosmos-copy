@@ -137,8 +137,8 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .how { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: clamp(32px, 6vw, 88px); align-items: start; }
 .how-step { display: flex; flex-direction: column; justify-content: center; min-height: 58vh; opacity: 0.28; transition: opacity 0.5s; }
 .how-step.on { opacity: 1; }
-.how-step .num { color: var(--accent); font: 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.how-step h3 { margin-top: 14px; font-size: clamp(22px, 2.3vw, 32px); letter-spacing: -0.025em; line-height: 1.12; }
+.how-step .num { margin-right: 0.45em; color: var(--accent); font-variant-numeric: tabular-nums; }
+.how-step h3 { font-size: clamp(22px, 2.3vw, 32px); letter-spacing: -0.025em; line-height: 1.12; }
 .how-step p { max-width: 26em; margin-top: 12px; color: var(--muted); }
 .scene-wrap { position: sticky; top: max(24px, calc(50vh - 320px)); width: 100%; max-width: calc((100vh - 48px) / 0.9); margin-left: auto; }
 /* The scene has no card of its own: its parts lie on the page. The script tilts it a little toward the pointer (--rx, --ry). */
@@ -181,6 +181,29 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .scene[data-step="2"] .s1, .scene[data-step="5"] .s2 { transition: clip-path 1s 0.45s steps(26); }
 .send { position: absolute; right: 3.4cqw; bottom: 3.4cqw; display: flex; align-items: center; justify-content: center; width: 6.4cqw; height: 6.4cqw; border-radius: 50%; background: var(--accent); transition: opacity 0.3s, transform 0.5s var(--out); }
 .send svg { width: 50%; height: 50%; fill: none; stroke: var(--on-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.send em, .chat-tools, .chat-hint { display: none; }
+/* Variants of the chat box, for review: ?chat=b, c or d. */
+/* b: a tool row under the text. */
+[data-chat="b"] .composer { border-radius: 4cqw; }
+[data-chat="b"] .chat-tools { position: absolute; left: 3.4cqw; bottom: 3.4cqw; display: flex; align-items: center; gap: 1.6cqw; color: var(--muted); font-size: max(9px, 2.1cqw); transition: opacity 0.3s; }
+[data-chat="b"] .chat-tools svg { box-sizing: border-box; width: 6.4cqw; height: 6.4cqw; padding: 1.7cqw; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border); fill: none; stroke: #c9c9ce; stroke-width: 1.6; stroke-linecap: round; }
+[data-chat="b"] .chat-tools b { padding: 1.5cqw 2.4cqw; border-radius: 99px; box-shadow: inset 0 0 0 1px var(--border); font-weight: 500; }
+[data-chat="b"] .say { bottom: 13.4cqw; right: 5cqw; }
+[data-chat="b"][data-step="3"] .say, [data-chat="b"][data-step="5"] .say { bottom: 4.6cqw; }
+[data-chat="b"][data-step="3"] .chat-tools, [data-chat="b"][data-step="5"] .chat-tools { opacity: 0; }
+/* c: glass with a lime edge, and a send pill. */
+[data-chat="c"] .composer { border-radius: 5cqw; background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 -1px 0 0 rgba(198, 227, 58, 0.55), 0 3cqw 10cqw rgba(0, 0, 0, 0.45), 0 4cqw 14cqw -4cqw rgba(198, 227, 58, 0.28); }
+[data-chat="c"] .send { width: auto; gap: 1cqw; padding: 0 2.2cqw 0 2.8cqw; border-radius: 99px; color: var(--on-accent); font-size: max(9px, 2.2cqw); font-weight: 600; }
+[data-chat="c"] .send em { display: inline; font-style: normal; }
+[data-chat="c"] .send svg { width: 2.8cqw; height: 2.8cqw; rotate: 90deg; }
+[data-chat="c"] .say { right: 22cqw; }
+/* d: a prompt line, as in a terminal agent. */
+[data-chat="d"] .composer { border-radius: 1.8cqw; background: #0b0b0c; box-shadow: 0 0 0 1px var(--border), 0 3cqw 8cqw rgba(0, 0, 0, 0.4); }
+[data-chat="d"] .composer::before { content: ">"; position: absolute; left: 4cqw; bottom: 4.6cqw; color: var(--accent); font: 600 max(9px, 2.15cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+[data-chat="d"] .say { left: 8.4cqw; right: 3cqw; font: max(9px, 2.15cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+[data-chat="d"] .send { display: none; }
+[data-chat="d"] .chat-hint { position: absolute; right: 4cqw; top: 3.4cqw; display: block; color: #6d6d75; font: max(8px, 1.8cqw)/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; transition: opacity 0.3s; }
+[data-chat="d"][data-step="3"] .chat-hint, [data-chat="d"][data-step="5"] .chat-hint { opacity: 0; }
 
 /* The agent at work. A tool call shows as agents show it: a grid of dots and a label with a moving light, then a tick and the result. */
 .agent { z-index: 2; left: 4%; width: 92%; top: 48%; }

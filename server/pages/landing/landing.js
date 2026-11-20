@@ -115,6 +115,9 @@
 
   // ---- How it works: the step at the middle of the view is the active one, and the scene shows its layout. ----
   const scene = document.getElementById("scene");
+  // For review: ?chat=b, c or d shows a variant of the chat box.
+  const chat = new URLSearchParams(location.search).get("chat");
+  if (chat) scene.dataset.chat = chat;
   const steps = [...document.querySelectorAll(".how-step")];
   if ("IntersectionObserver" in window) {
     // On a narrow page the scene stays at the top and the steps pass under it, so the line is lower there.
@@ -190,12 +193,11 @@
     hovered = event.target instanceof Element ? event.target.closest(".wall figure, .ref") : null;
   });
 
-  function demo(target, preview = true) {
+  function demo(target) {
     target.classList.remove("snap");
     void target.offsetWidth; // start the animation again when the demo runs twice
     target.classList.add("snap");
     setTimeout(() => target.classList.remove("snap"), 1100);
-    if (!preview) return;
     const picture = target === hero ? hero.querySelector(".back img") : target.querySelector("img");
     toastImage.src = picture.currentSrc || picture.src;
     toast.classList.add("in");
@@ -225,7 +227,7 @@
   });
   // With the extension installed, the browser gives the shortcut to the extension and this page gets no key event.
   // The extension then adds its toast (#cosmos-copy-toast) to the page: that is the sign of a real copy.
-  // The same effect plays, without the preview toast. A red toast is an error, so nothing plays.
+  // The extension shows the frame and the picture itself, so the page only presses the keys. A red toast is an error.
   let lastReal = 0;
   function realCopy(node) {
     if (node.style.background.includes("180") || Date.now() - lastReal < 1500) return;
@@ -234,7 +236,6 @@
       key.classList.add("down");
       setTimeout(() => key.classList.remove("down"), 420);
     });
-    demo(hovered ?? hero, false);
   }
   const extensionToast = new MutationObserver((changes) => {
     for (const change of changes) {
