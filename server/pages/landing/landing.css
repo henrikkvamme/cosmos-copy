@@ -186,9 +186,9 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .scene[data-step="3"] .composer::after, .scene[data-step="5"] .composer::after { color: #8a8a92; }
 .scene[data-step="3"] .chat-hint, .scene[data-step="5"] .chat-hint { opacity: 0; }
 
-/* The agent at work. A tool call shows as agents show it: a grid of dots and a label with a moving light, then a tick and the result. */
+/* The agent at work. A tool call shows as agents show it: a grid of dots and a label with a moving light, then a dot and the result line. */
 .agent { z-index: 2; left: 4%; width: 92%; top: 48%; }
-.agent > *, .result div, .recall div, .again { opacity: 0; transform: translateY(2.4cqw); transition: opacity 0.4s, transform 0.7s var(--out); }
+.agent > *, .recall div, .again { opacity: 0; transform: translateY(2.4cqw); transition: opacity 0.4s, transform 0.7s var(--out); }
 .tool { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0.4cqw 1.5cqw; color: #d9d9dc; font: max(9px, 2.1cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
 .tool .spin { grid-area: 1 / 1; width: 2.2cqw; height: 2.2cqw; }
 .tool .ok { grid-area: 1 / 1; justify-self: center; width: 1.3cqw; height: 1.3cqw; border-radius: 50%; background: var(--accent); }
@@ -215,11 +215,6 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .line { display: flex; gap: 1.5cqw; margin-top: 2.2cqw; color: #d9d9dc; font: max(9px, 2.1cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .line .dot { width: 1.3cqw; height: 1.3cqw; margin: 1.05cqw 0.45cqw 0; background: #e8e8ea; }
 /* What the agent builds from the reference: small cards with one number each. */
-.result { z-index: 2; left: 4%; width: 92%; top: 79%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2cqw; }
-.result div { display: flex; flex-direction: column; gap: 0.6cqw; padding: 2cqw 2.4cqw; border-radius: 2cqw; background: var(--surface); box-shadow: 0 0 0 1px var(--border); color: var(--muted); font-size: max(8px, 1.9cqw); }
-.result b { color: var(--text); font-size: max(13px, 4.2cqw); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
-.result div:first-child { box-shadow: 0 0 0 1px rgba(198, 227, 58, 0.55); }
-.result div:first-child b { color: var(--accent); }
 
 /* Step 4: the entry in the vault. */
 .vault { z-index: 3; left: 3%; width: 94%; top: 5%; height: 88%; border-radius: 3.4cqw; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 3cqw 8cqw rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(8cqw); }
@@ -249,9 +244,6 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .scene[data-step="3"] .a3 > *, .scene[data-step="5"] .a5 > * { opacity: 1; transform: none; transition-delay: 0.35s; }
 .scene[data-step="3"] .a3 > :nth-child(2) { transition-delay: 2.5s; }
 .scene[data-step="3"] .a3 > :nth-child(3) { transition-delay: 2.75s; }
-.scene[data-step="3"] .result div { opacity: 1; transform: none; transition-delay: 3.1s; }
-.scene[data-step="3"] .result div:nth-child(2) { transition-delay: 3.22s; }
-.scene[data-step="3"] .result div:nth-child(3) { transition-delay: 3.34s; }
 .scene[data-step="4"] .ref { left: 8%; top: 22%; width: 34%; }
 .scene[data-step="4"] .composer { top: -14%; height: 40%; }
 .scene[data-step="4"] .vault { opacity: 1; transform: none; }
