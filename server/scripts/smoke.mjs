@@ -193,6 +193,25 @@ try {
   await startServer();
   check("GET /health", (await (await fetch(`${base}/health`)).text()) === "ok");
 
+  // The landing page: a browser gets the page, a script gets the usage text.
+  {
+    const html = await fetch(`${base}/`, { headers: { accept: "text/html,application/xhtml+xml" } });
+    const body = await html.text();
+    check(
+      "landing: a browser gets the page, with a CSP and no noindex",
+      html.status === 200 && (html.headers.get("content-type") ?? "").startsWith("text/html") && (html.headers.get("content-security-policy") ?? "").includes("script-src 'self'") && !html.headers.get("x-robots-tag") && body.includes("<title>TasteRef"),
+      html.status,
+    );
+    const files = [...body.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
+    const statuses = await Promise.all([...new Set(files)].map(async (file) => [file, (await fetch(base + file)).status]));
+    check("landing: every file the page names is served", files.length > 10 && statuses.every(([, status]) => status === 200), statuses.filter(([, status]) => status !== 200));
+    check("landing: the page holds no inline script or style", !/<script(?![^>]*\bsrc=)|<style|\sstyle=|\son[a-z]+=/i.test(body));
+    const text = await fetch(`${base}/`, { headers: { accept: "*/*" } });
+    check("landing: a script gets the usage text", (text.headers.get("content-type") ?? "").startsWith("text/plain") && (await text.text()).includes("POST /mcp"));
+    check("landing: an unknown file gives 404", (await fetch(`${base}/assets/landing/nope.css`)).status === 404);
+    check("landing: the other pages keep noindex", (await fetch(`${base}/assets/pages.css`)).headers.get("x-robots-tag") === "noindex, nofollow");
+  }
+
   // Anonymous route, as before. Real Cosmos through the fake.
   {
     const client = await mcp("/mcp/henrikkvamme/agent-references");

@@ -23,6 +23,7 @@ import { CosmosError, getCollection, JWT_PATTERN, SLUG_PATTERN, USERNAME_PATTERN
 import { setLocalSource } from "./image.js";
 import { buildInstructions, buildServer } from "./mcp.js";
 import { OwnVault } from "./ownvault.js";
+import { Landing } from "./landing.js";
 import { Pages } from "./pages.js";
 import { PickStore } from "./picks.js";
 import { clientIp, RateLimiter } from "./ratelimit.js";
@@ -104,6 +105,7 @@ function log(fields: Record<string, unknown>): void {
 }
 
 const pages = new Pages(picks, log);
+const landing = new Landing();
 /** The references from other sites. */
 const ownVault = new OwnVault(DATA_DIR, log);
 setLocalSource((url) => ownVault.thumbOfUrl(url));
@@ -408,8 +410,10 @@ const httpServer = createServer((req, res) => {
     }
     if (path === "/") {
       if (req.method !== "GET" && req.method !== "HEAD") return sendText(res, 405, "Method not allowed.\n", { allow: "GET" });
-      return sendText(res, 200, USAGE);
+      if (Landing.wantsHtml(req)) return landing.page(res);
+      return sendText(res, 200, USAGE, { vary: "accept" });
     }
+    if (landing.handle(req, res, path)) return;
     if (path === "/link" || path === "/unlink") {
       if (req.method !== "POST") return sendJson(res, 405, { error: "Method not allowed. Use POST." }, { allow: "POST" });
       const ip = clientIp(req);

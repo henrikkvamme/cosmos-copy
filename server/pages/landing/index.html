@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TasteRef - Show agents what you like. They learn.</title>
+<meta name="description" content="Copy any image or video with Option+Shift+C and paste it into your agent. TasteRef saves each reference to a vault your agent reads through MCP.">
+<link rel="canonical" href="https://tasteref.henrikkvamme.no/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="TasteRef">
+<meta property="og:description" content="Show agents what you like. They learn.">
+<meta property="og:url" content="https://tasteref.henrikkvamme.no/">
+<meta property="og:image" content="https://tasteref.henrikkvamme.no/assets/landing/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0d0d0e">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="stylesheet" href="/assets/landing/landing.css">
+<script src="/assets/landing/landing.js" defer></script>
+</head>
+<body>
+
+<header class="hero" id="hero">
+  <div class="layer back"><img src="/assets/landing/hero-peak.webp" srcset="/assets/landing/hero-peak.webp 1632w, /assets/landing/hero-peak-2x.webp 2880w" sizes="100vw" width="1632" height="1216" alt="" fetchpriority="high"><video id="film" data-src="/assets/landing/hero-peak.mp4" width="1632" height="1216" muted loop playsinline preload="none" aria-hidden="true"></video></div>
+  <div class="layer wisps"><i></i></div>
+  <nav class="nav">
+    <a class="brand" href="/"><img src="/assets/favicon.svg" width="26" height="26" alt="">TasteRef</a>
+    <span class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#install">Install</a>
+    </span>
+    <a class="nav-signin" href="/account">Sign in</a>
+  </nav>
+  <div class="hero-text">
+    <h1>Show agents what you like. <span>They learn.</span></h1>
+    <p class="lede">Hover an image or video on any site and press Option+Shift+C. Paste the reference into your agent. TasteRef saves it to your vault automatically.</p>
+    <button class="keys" id="keys" type="button" aria-label="Play the Option+Shift+C copy demo">
+      <kbd>⌥</kbd><kbd>⇧</kbd><kbd>C</kbd>
+    </button>
+    <div class="actions">
+      <a class="pill primary" href="#install"><span>Install TasteRef</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12l8-8M5.5 4H12v6.5"/></svg></a>
+      <a class="pill" href="#how"><span>How it works</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12l8-8M5.5 4H12v6.5"/></svg></a>
+    </div>
+  </div>
+  <div class="layer fog"><i></i></div>
+  <div class="layer fog near"><i></i></div>
+  <div class="viewfinder" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+</header>
+
+<ul class="facts">
+  <li>Free to use</li>
+  <li>Works on any site</li>
+  <li>Connects through MCP</li>
+  <li>macOS: Chrome, Brave, Ardia</li>
+</ul>
+
+<main>
+
+<section class="section" id="how">
+  <div class="head" data-reveal>
+    <h2>How TasteRef works</h2>
+    <p>Copy a reference, paste it into your agent, and your agent does the rest.</p>
+  </div>
+  <div class="how">
+    <ol class="how-steps">
+      <li class="how-step on" data-step="1"><span class="num">01</span><h3>Copy with a shortcut</h3><p>Hover over an image or video on any site and press Option+Shift+C. TasteRef copies it with an ID strip and saves it to your vault.</p></li>
+      <li class="how-step" data-step="2"><span class="num">02</span><h3>Paste into your agent</h3><p>Paste the reference into Claude Code, Codex, ChatGPT, or any agent chat that accepts images.</p></li>
+      <li class="how-step" data-step="3"><span class="num">03</span><h3>Your agent designs</h3><p>The ID strip tells your agent which reference you pasted. Your agent reads the details from your vault through MCP and designs from it.</p></li>
+      <li class="how-step" data-step="4"><span class="num">04</span><h3>Your agent remembers why</h3><p>Your agent records where and why it used the reference, what changed, and what you liked. It also records references you reject, with no input from you.</p></li>
+      <li class="how-step" data-step="5"><span class="num">05</span><h3>Next time, paste nothing</h3><p>Start a new design task without a reference. Your agent reads your vault and designs from what you liked.</p></li>
+    </ol>
+    <div class="scene-wrap">
+      <div class="scene" id="scene" data-step="1" aria-hidden="true">
+        <div class="composer"><p class="say s1">Use this card layout and spacing for the settings list.</p><p class="say s2">Design the billing page.</p><span class="send"><svg viewBox="0 0 16 16"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></span></div>
+        <div class="agent a3">
+          <p class="tool"><i class="spin"></i><svg class="ok" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg><span class="doing">Reading reference from your vault</span><span class="done">Read reference from your vault <b>t482019377215604</b></span></p>
+          <p class="line"><span class="dot"></span>The reference uses compact cards with one clear number each.</p>
+          <p class="line"><span class="dot"></span>I am building the settings list from this layout now.</p>
+        </div>
+        <div class="result"><div><span>Devices</span><b>4</b></div><div><span>Members</span><b>12</b></div><div><span>Alerts</span><b>3</b></div></div>
+        <div class="vault">
+          <div class="vault-bar"><span>Your vault</span><span class="tag"><span class="dot"></span>Written by your agent</span></div>
+          <dl class="rows"><div><dt>Used in</dt><dd>Settings list</dd></div><div><dt>Why</dt><dd>Card layout and spacing</dd></div><div><dt>Changed</dt><dd>List rows became cards</dd></div><div><dt>You liked</dt><dd>Compact stat cards</dd></div></dl>
+          <div class="passed"><img src="/assets/landing/ref-poster.webp" alt="" loading="lazy"><span class="tag off">Rejected</span><span>Poster layout - too bold for this app</span></div>
+        </div>
+        <div class="agent a5">
+          <p class="tool"><i class="spin"></i><svg class="ok" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7"/></svg><span class="doing">Searching your vault</span><span class="done">Found reference in your vault <b>t482019377215604</b></span></p>
+        </div>
+        <dl class="rows recall"><div><dt>Used in</dt><dd>Settings list</dd></div><div><dt>You liked</dt><dd>Compact stat cards</dd></div></dl>
+        <p class="line again"><span class="dot"></span>You liked the compact stat cards in the settings list. I am using the same layout here.</p>
+        <div class="ref">
+          <img src="/assets/landing/ref-dashboard.webp" srcset="/assets/landing/ref-dashboard.webp 960w, /assets/landing/ref-dashboard-2x.webp 2400w" sizes="(max-width: 900px) 90vw, 50vw" width="1536" height="1024" alt="" loading="lazy">
+          <span class="strip">tasteref t482019377215604-42</span>
+          <svg class="cursor" viewBox="0 0 24 24"><path d="M5 3l14 7.5-6 1.6L10.6 18z"/></svg>
+        </div>
+        <div class="keys small"><kbd>⌥</kbd><kbd>⇧</kbd><kbd>C</kbd></div>
+        <div class="copied"><span class="thumb"><img src="/assets/landing/ref-dashboard.webp" width="1536" height="1024" alt="" loading="lazy"><span class="strip">t482019377215604-42</span></span>Reference copied</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="taste">
+  <div class="head" data-reveal>
+    <h2>Your agent learns your taste</h2>
+    <p>TasteRef saves every copy to your vault automatically, alongside your saves from Cosmos. Connect your agent through MCP so it reads your vault before each task.</p>
+  </div>
+  <div class="wall" aria-hidden="true">
+    <div class="col" data-speed="0.05">
+      <figure class="r32"><img src="/assets/landing/ref-interior.webp" alt="" loading="lazy"></figure>
+      <figure class="r23"><img src="/assets/landing/ref-poster.webp" alt="" loading="lazy"></figure>
+      <figure class="r11"><img src="/assets/landing/ref-glass.webp" alt="" loading="lazy"></figure>
+    </div>
+    <div class="col" data-speed="-0.04">
+      <figure class="r23"><img src="/assets/landing/ref-mobile.webp" alt="" loading="lazy"></figure>
+      <figure class="r32"><img src="/assets/landing/ref-type.webp" alt="" loading="lazy"></figure>
+      <figure class="r11"><img src="/assets/landing/ref-product.webp" alt="" loading="lazy"></figure>
+    </div>
+    <div class="col" data-speed="0.08">
+      <figure class="r11"><img src="/assets/landing/ref-editorial.webp" alt="" loading="lazy"></figure>
+      <figure class="r23"><img src="/assets/landing/ref-packaging.webp" alt="" loading="lazy"></figure>
+      <figure class="r32"><img src="/assets/landing/ref-web.webp" alt="" loading="lazy"></figure>
+    </div>
+    <div class="col" data-speed="-0.06">
+      <figure class="r11"><img src="/assets/landing/ref-icons.webp" alt="" loading="lazy"></figure>
+      <figure class="r32"><img src="/assets/landing/ref-dashboard.webp" alt="" loading="lazy"></figure>
+      <figure class="r23"><img src="/assets/landing/ref-brand.webp" alt="" loading="lazy"></figure>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="free">
+  <div class="free">
+    <div class="free-main" data-reveal>
+      <p class="zero"><b>$0</b><span>No plan. No usage fees.</span></p>
+      <div class="head">
+        <h2>Free with your own agent</h2>
+        <p>TasteRef runs no AI model on its server. Your agent does all the AI work on the subscription you already pay for.</p>
+      </div>
+    </div>
+    <div class="flow" data-reveal>
+      <div class="node lit"><span class="chip"><span class="dot"></span>AI work</span><h3>Your agent</h3><p>Claude Code, Codex or another agent. It runs on your subscription.</p></div>
+      <div class="wire" aria-hidden="true"><i></i><i></i><i></i><i></i><span>MCP</span></div>
+      <div class="node"><span class="chip off">Storage only</span><h3>TasteRef</h3><p>Stores your references. Runs no AI model.</p></div>
+    </div>
+    <ul class="free-points" data-reveal>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4M4 4l16 16"/></svg><h3>No AI on the server</h3><p>The TasteRef server stores references and connects through MCP. It runs no AI model and adds no usage fees.</p></li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.5 15.5L20 20M8 10.5h5M8 8h3"/></svg><h3>Your agent indexes the vault</h3><p>Your agent writes descriptions to make your vault searchable. It uses the subscription you already pay for.</p></li>
+      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5.5 11h13v9h-13zM12 14.5v2.5"/></svg><h3>You control your data</h3><p>Only you and the agents you connect can read your vault. Delete any reference or your account at any time.</p></li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="install">
+  <div class="head" data-reveal>
+    <h2>Install TasteRef with your agent</h2>
+    <p>The Chrome Web Store version is not out yet. Copy this prompt and paste it into your coding agent to install TasteRef.</p>
+  </div>
+  <div class="card" data-reveal>
+    <div class="card-bar">
+      <span class="card-label"><span class="dot"></span>Install prompt</span>
+      <button class="pill primary" id="copy" type="button" data-done="Copied"><span id="copy-label">Copy prompt</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path class="copy-icon" d="M5.5 5.5h7v7h-7zM3.5 10.5v-7h7"/><path class="done-icon" d="M3.5 8.5l3 3 6-7"/></svg></button>
+    </div>
+    <pre id="prompt" tabindex="0">Install TasteRef for me on this Mac. Do what you can yourself. Ask me only when needed, tell me what to click, and confirm each step before the next.
+
+1. Check Chrome, Brave, and Ardia. Use my preferred browser if known, or ask if multiple are installed.
+2. Check swiftc. If missing, run xcode-select --install and wait for me.
+3. Clone https://github.com/henrikkvamme/cosmos-copy to ~/.tasteref. Keep it there for the extension and clipboard helper.
+4. Run ./install.sh in ~/.tasteref to build and register the helper.
+5. Load ~/.tasteref/extension unpacked (ID gdkbjkepnfmnonhgfjmklmmnboiamdad). Do this only if you control the browser or screen. Otherwise give me the path: open chrome://extensions or brave://extensions (Ardia: Settings, "Show advanced settings", Extensions), turn on Developer mode, click "Load unpacked", select the folder.
+6. Have me sign in at cosmos.so (free account) in that browser.
+7. Have me open the TasteRef popup, click the gear, click "Connect account", sign in with Google, click "Copy setup prompt", and paste it here for MCP. Never print, log, or share its private key.
+8. Have me hover an image, press Option+Shift+C, and paste it here.</pre>
+  </div>
+  <ul class="points" data-reveal>
+    <li><h3>What your agent does</h3><p>Your agent clones the repository to ~/.tasteref and builds the clipboard helper. It registers the helper with your browser and connects to your vault.</p></li>
+    <li><h3>What needs you</h3><p>You load the unpacked extension in Developer mode and sign in to Cosmos. Then you click Connect account in the popup and paste the setup prompt back.</p></li>
+    <li><h3>What you need first</h3><p>You need macOS, Chrome, Brave or Ardia, and Xcode Command Line Tools. You also need a coding agent with terminal access, such as Claude Code or Codex.</p></li>
+  </ul>
+  <div class="actions left">
+    <a class="pill" href="https://github.com/henrikkvamme/cosmos-copy"><span>View on GitHub</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12l8-8M5.5 4H12v6.5"/></svg></a>
+  </div>
+</section>
+
+<section class="closing" id="closing">
+  <div class="layer back"><img src="/assets/landing/hero-aurora.webp" srcset="/assets/landing/hero-aurora.webp 1536w, /assets/landing/hero-aurora-2x.webp 2880w" sizes="100vw" width="1536" height="1024" alt="" loading="lazy"></div>
+  <div class="layer wisps"><i></i></div>
+  <h2 data-reveal>Start building your vault</h2>
+  <p data-reveal>Copy the install prompt and let your coding agent set up TasteRef.</p>
+  <div data-reveal><a class="pill primary" href="#install"><span>Install TasteRef</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12l8-8M5.5 4H12v6.5"/></svg></a></div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <a class="brand" href="/"><img src="/assets/favicon.svg" width="22" height="22" alt="">TasteRef</a>
+  <p>TasteRef - design references from any site for your AI agent.</p>
+  <span class="foot-links">
+    <a href="/privacy">What we store</a>
+    <a href="https://github.com/henrikkvamme/cosmos-copy">GitHub</a>
+    <a href="/account">Sign in</a>
+  </span>
+</footer>
+
+<div class="demo-toast" id="toast" aria-hidden="true">
+  <span class="thumb"><img id="toast-img" src="/assets/landing/hero-peak.webp" width="1632" height="1216" alt=""><span class="strip">t482019377215604-42</span></span>
+  <span role="status">Preview - how a real copy looks</span>
+</div>
+</body>
+</html>

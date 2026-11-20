@@ -43,7 +43,8 @@ A remote, stateless MCP server (Streamable HTTP) for Cosmos (cosmos.so). It has 
 - `POST /account/api/vault/delete` with `{id}`: delete one saved reference.
 - `GET /assets/<file>`: the page scripts and the style sheet.
 - `GET /health`: `ok`.
-- `GET /`: usage text.
+- `GET /`: the landing page when the `Accept` header asks for `text/html`, or plain usage text for other clients. Search engines may index only this page. All other pages send `noindex`.
+- `GET /assets/landing/<file>`: the style sheet, script, and images of the landing page from `pages/landing/`.
 
 `GET` and `DELETE` on an MCP endpoint return 405, because the server keeps no session.
 

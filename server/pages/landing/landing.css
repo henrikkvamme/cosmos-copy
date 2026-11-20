@@ -1,0 +1,361 @@
+/* The landing page. Tokens match pages.css: the dark theme and the one lime accent. */
+:root {
+  --bg: #0d0d0e;
+  --surface: #17171a;
+  --surface2: #202024;
+  --border: #2a2a2f;
+  --text: #ededee;
+  --muted: #8a8a92;
+  --accent: #c6e33a;
+  --on-accent: #111113;
+  --r: 20px;
+  --page: 1200px;
+  --gutter: clamp(20px, 4vw, 48px);
+  --out: cubic-bezier(0.22, 1, 0.36, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; overflow-x: clip; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; border: 0; cursor: pointer; }
+h1, h2, h3, p, ul, ol, figure { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+img { display: block; max-width: 100%; height: auto; }
+h1, h2 { font-weight: 600; letter-spacing: -0.035em; line-height: 1.04; text-wrap: balance; }
+h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+
+.brand { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+
+/* ---- Buttons: the arrow turns, and the script pulls the pill toward the pointer (--tx, --ty). ---- */
+.pill { --tx: 0px; --ty: 0px; position: relative; display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 8px 0 22px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); font-size: 15px; font-weight: 500; white-space: nowrap; transform: translate(var(--tx), var(--ty)); transition: transform 0.5s var(--out), background 0.25s, box-shadow 0.35s; }
+.pill:focus-visible { border-radius: 999px; }
+.pill .arrow { width: 32px; height: 32px; padding: 9px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.45s var(--out), background 0.25s; }
+.pill:hover { background: rgba(255, 255, 255, 0.14); }
+a.pill:hover .arrow { transform: rotate(45deg); }
+.pill:active { transform: translate(var(--tx), var(--ty)) scale(0.97); transition-duration: 0.1s; }
+.pill.primary { background: var(--accent); color: var(--on-accent); }
+.pill.primary .arrow { background: var(--on-accent); stroke: var(--accent); }
+.pill.primary:hover { background: #d6ee5e; box-shadow: 0 10px 44px -6px rgba(198, 227, 58, 0.55); }
+.actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.actions.left { justify-content: flex-start; }
+
+/* ---- Keycaps. A key goes down while it is held, on this page too. ---- */
+kbd { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(#2b2b30, #1c1c20); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 3px 0 #050506; font: 500 19px/1 -apple-system, BlinkMacSystemFont, "Inter", sans-serif; color: var(--text); transition: transform 0.12s, box-shadow 0.12s, background 0.12s; }
+.keys { display: inline-flex; gap: 6px; padding: 8px 8px 11px; border-radius: 20px; background: rgba(13, 13, 14, 0.6); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07); }
+.keys kbd:last-child { background: var(--accent); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 #5d6c12; }
+button.keys:hover kbd { transform: translateY(-1px); }
+.keys kbd.down, button.keys:hover kbd.down { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 #050506; background: #34343a; }
+.keys kbd:last-child.down, button.keys:hover kbd:last-child.down { background: #e2f57a; box-shadow: 0 0 0 #5d6c12, 0 0 28px rgba(198, 227, 58, 0.7); }
+.keys.small { gap: 4px; padding: 5px 5px 7px; border-radius: 13px; background: rgba(13, 13, 14, 0.86); }
+.keys.small kbd { width: 28px; height: 28px; border-radius: 8px; font-size: 13px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 0 #050506; }
+
+/* ---- Hero: one rounded panel built from layers. Back to front: the picture (a still, then a video of the same view over it), wisps, the text, far fog, near fog.
+   The script gives --sy (pixels scrolled) and --mx, --my (the pointer, -1 to 1). Far layers move least. ---- */
+.hero, .closing { --sy: 0; --mx: 0; --my: 0; position: relative; overflow: hidden; background: #09090a; isolation: isolate; }
+.hero { display: flex; flex-direction: column; margin: 10px; min-height: min(1000px, calc(100svh - 20px)); border-radius: 28px; }
+.layer { position: absolute; pointer-events: none; will-change: transform; }
+.back { inset: 0; z-index: 0; -webkit-mask-image: linear-gradient(transparent 6%, #000 36%); mask-image: linear-gradient(transparent 6%, #000 36%); }
+.back img, .back video { position: absolute; left: -2%; bottom: -9%; width: 104%; max-width: none; height: 100%; object-fit: cover; object-position: 50% 100%; transform: translate3d(calc(var(--mx) * -9px), calc(var(--sy) * 0.3px + var(--my) * -6px), 0) scale(calc(1 + var(--sy) * 0.00012)); transition: filter 0.9s; }
+.hero .back img, .hero .back video { bottom: -23%; }
+.back video { opacity: 0; transition: opacity 1.6s, filter 0.9s; }
+.back video.on { opacity: 1; }
+.hero .back { animation: dawn 1.8s var(--out) both; }
+@keyframes dawn { from { opacity: 0; transform: scale(1.06); } }
+.hero::after { content: ""; position: absolute; inset: 0; z-index: 1; background: url(/assets/landing/grain.png); opacity: 0.06; mix-blend-mode: overlay; pointer-events: none; }
+.wisps, .fog { left: -4%; right: -4%; overflow: hidden; mix-blend-mode: screen; }
+.wisps i, .fog i { position: absolute; top: 0; left: 0; width: 400%; height: 100%; background-repeat: repeat-x; background-size: 50% 100%; animation: drift 150s linear infinite; }
+@keyframes drift { to { transform: translate3d(-50%, 0, 0); } }
+.wisps { top: 0; bottom: 0; z-index: 1; opacity: 0.55; transform: translate3d(calc(var(--mx) * -16px), calc(var(--sy) * 0.14px + var(--my) * -9px), 0); }
+.wisps i { background-image: url(/assets/landing/layer-wisps.webp); animation-duration: 210s; }
+/* Two bands of fog. The fog is thick at its bottom edge, so that edge stays below the panel at every scroll position:
+   the far band moves down a little with the scroll, the near band does not move with it. */
+.fog { bottom: -6%; height: 46%; z-index: 3; opacity: 0.9; transform: translate3d(calc(var(--mx) * -22px), calc(var(--sy) * 0.04px + var(--my) * -10px), 0); -webkit-mask-image: linear-gradient(transparent, #000 45%); mask-image: linear-gradient(transparent, #000 45%); }
+.fog i { background-image: url(/assets/landing/layer-fog.webp); }
+.fog.near { bottom: -9%; height: 36%; z-index: 4; opacity: 0.8; transform: translate3d(calc(var(--mx) * -46px), calc(var(--my) * -16px), 0); }
+.fog.near i { width: 300%; background-position: 37% 0; animation-duration: 95s; animation-direction: reverse; }
+.nav { position: relative; z-index: 6; display: flex; align-items: center; gap: 28px; padding: 22px 28px; }
+.nav-links { display: flex; gap: 26px; flex: 1; justify-content: center; font-size: 15px; color: var(--muted); }
+.nav-links a, .nav-signin, .foot-links a { position: relative; transition: color 0.2s; }
+.nav-links a::after, .nav-signin::after, .foot-links a::after { content: ""; position: absolute; left: 0; right: 0; bottom: -4px; height: 1px; background: var(--accent); transform: scaleX(0); transform-origin: 100% 50%; transition: transform 0.4s var(--out); }
+.nav-links a:hover, .nav-signin:hover, .foot-links a:hover { color: var(--text); }
+.nav-links a:hover::after, .nav-signin:hover::after, .foot-links a:hover::after { transform: scaleX(1); transform-origin: 0 50%; }
+.nav-signin { font-size: 15px; color: var(--muted); }
+.hero-text { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; text-align: center; padding: clamp(20px, 5svh, 64px) var(--gutter) 0; transform: translate3d(0, calc(var(--sy) * 0.16px), 0); opacity: calc(1 - var(--sy) / 620); }
+.hero-text > * { animation: up 1s var(--out) both; }
+.hero-text > :nth-child(2) { animation-delay: 0.08s; }
+.hero-text > :nth-child(3) { animation-delay: 0.16s; }
+.hero-text > :nth-child(4) { animation-delay: 0.24s; }
+@keyframes up { from { opacity: 0; transform: translateY(26px); } }
+.hero h1 { max-width: 12em; font-size: clamp(40px, 5.6vw, 76px); }
+.hero h1 span { display: block; }
+.lede { max-width: 34em; margin-top: 20px; color: #a9a9b0; font-size: clamp(16px, 1.4vw, 19px); text-wrap: pretty; }
+.hero .keys { margin-top: 26px; }
+.hero .actions { margin-top: 18px; }
+.hero .pill:not(.primary) { background: rgba(16, 16, 18, 0.72); }
+.hero .pill:not(.primary):hover { background: rgba(38, 38, 42, 0.86); }
+
+/* The copy demo on the hero: four corners close in, and the picture flashes. */
+.viewfinder { position: absolute; inset: 22px; z-index: 5; pointer-events: none; opacity: 0; }
+.viewfinder i { position: absolute; width: 34px; height: 34px; border: 3px solid var(--accent); }
+.viewfinder i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 14px; }
+.viewfinder i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 14px; }
+.viewfinder i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 14px; }
+.viewfinder i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 14px; }
+.hero.snap .viewfinder { animation: finder 1.1s var(--out); }
+@keyframes finder { 0% { opacity: 0; transform: scale(1.035); } 18% { opacity: 1; transform: none; } 70% { opacity: 1; } 100% { opacity: 0; } }
+.hero.snap .back img, .hero.snap .back video { filter: brightness(1.35) saturate(1.15); transition-duration: 0.08s; }
+
+/* The copy demo on a tile: a lime frame, as on the real page. */
+.wall figure { position: relative; }
+.snap:not(.hero)::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; box-shadow: inset 0 0 0 3px var(--accent); pointer-events: none; animation: frame 1.1s var(--out); }
+@keyframes frame { 0% { opacity: 0; transform: scale(1.04); } 18% { opacity: 1; transform: none; } 70% { opacity: 1; } 100% { opacity: 0; } }
+.demo-toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; display: flex; align-items: center; gap: 12px; padding: 8px 18px 8px 8px; border-radius: 16px; background: rgba(28, 28, 32, 0.92); box-shadow: 0 0 0 1px var(--border), 0 18px 50px rgba(0, 0, 0, 0.55); font-size: 14px; white-space: nowrap; pointer-events: none; opacity: 0; transform: translate(-50%, 24px) scale(0.96); transition: opacity 0.3s, transform 0.45s var(--out); }
+.demo-toast.in { opacity: 1; transform: translate(-50%, 0); }
+.demo-toast .thumb { width: 64px; border-radius: 8px; overflow: hidden; background: #0b0b0c; }
+.demo-toast .thumb img { width: 100%; height: 34px; object-fit: cover; }
+.demo-toast .strip { font-size: 5.5px; line-height: 10px; padding: 0 4px; }
+
+.facts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 36px; padding: 30px var(--gutter) 0; color: var(--muted); font-size: 15px; }
+.facts li { display: flex; align-items: center; gap: 10px; }
+.facts li::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+
+/* ---- Sections ---- */
+.section { max-width: calc(var(--page) + 2 * var(--gutter)); margin: 0 auto; padding: clamp(88px, 12vw, 168px) var(--gutter) 0; }
+.head { max-width: 640px; margin-bottom: clamp(32px, 4vw, 56px); }
+.head h2, .closing h2 { font-size: clamp(32px, 4.2vw, 56px); }
+.head p { margin-top: 16px; color: var(--muted); text-wrap: pretty; }
+/* A part comes in when it enters the view. Without the script it is just there. */
+.js [data-reveal] { opacity: 0; transform: translateY(32px); transition: opacity 0.9s var(--out), transform 1.1s var(--out); transition-delay: calc(var(--i, 0) * 90ms); }
+.js [data-reveal].in { opacity: 1; transform: none; }
+
+/* ---- How it works: four steps beside one scene. The scene stays in view while the steps scroll past, and the
+   script sets data-step on it. The parts of the scene move between four layouts. The reference is one element
+   through all of them: the picture on a site, the attachment in the chat, and the entry in the vault.
+   Sizes in the scene are in cqw (1% of its width), so it keeps its proportions at every width. ---- */
+.how { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: clamp(32px, 6vw, 88px); align-items: start; }
+.how-step { display: flex; flex-direction: column; justify-content: center; min-height: 58vh; opacity: 0.28; transition: opacity 0.5s; }
+.how-step.on { opacity: 1; }
+.how-step .num { color: var(--accent); font: 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.how-step h3 { margin-top: 14px; font-size: clamp(22px, 2.3vw, 32px); letter-spacing: -0.025em; line-height: 1.12; }
+.how-step p { max-width: 26em; margin-top: 12px; color: var(--muted); }
+.scene-wrap { position: sticky; top: max(24px, calc(50vh - 320px)); width: 100%; max-width: calc((100vh - 48px) / 0.9); margin-left: auto; }
+/* The scene has no card of its own: its parts lie on the page. The script tilts it a little toward the pointer (--rx, --ry). */
+.scene { --rx: 0; --ry: 0; position: relative; container-type: size; aspect-ratio: 10 / 9; transform: perspective(1400px) rotateX(calc(var(--ry) * -2deg)) rotateY(calc(var(--rx) * 3deg)); transition: transform 0.7s var(--out); }
+.scene > * { position: absolute; transition: left 0.9s var(--out), top 0.9s var(--out), width 0.9s var(--out), height 0.9s var(--out), opacity 0.5s, transform 0.9s var(--out), box-shadow 0.6s; }
+.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.strip { display: block; padding: 0 8px; background: #0b0b0c; color: #d9d9dc; font: 9px/19px ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; overflow: hidden; }
+
+/* Step 1: a short film, again and again. The pointer comes, the keys go down, and the copy shows as it does
+   on this page for Option+Shift+C: the lime frame closes in, the picture flashes, the toast comes up. */
+.ref { z-index: 4; left: 5%; top: 2%; width: 90%; border-radius: 1.8cqw; overflow: hidden; box-shadow: 0 3cqw 8cqw rgba(0, 0, 0, 0.5); }
+.ref img { width: 100%; }
+.ref::before { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; box-shadow: inset 0 0 0 3px var(--accent); opacity: 0; pointer-events: none; }
+.ref .strip { padding: 0 1.4cqw; font-size: 1.2cqw; line-height: 0; opacity: 0; transition: line-height 0.6s var(--out), opacity 0.4s; }
+.ref .cursor { position: absolute; left: 58%; top: 50%; z-index: 2; width: 5cqw; height: 5cqw; fill: #fff; stroke: #111113; stroke-width: 1.4; stroke-linejoin: round; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.5)); transition: opacity 0.3s; }
+.scene > .keys { left: 50%; top: 74%; transform: translateX(-50%); }
+.copied { left: 50%; top: 86%; display: flex; align-items: center; gap: 12px; padding: 8px 18px 8px 8px; border-radius: 16px; background: rgba(28, 28, 32, 0.92); box-shadow: 0 0 0 1px var(--border), 0 18px 50px rgba(0, 0, 0, 0.55); font-size: 14px; white-space: nowrap; transform: translateX(-50%); }
+.thumb { flex: none; width: 64px; border-radius: 8px; overflow: hidden; background: #0b0b0c; }
+.thumb img { width: 100%; height: 34px; object-fit: cover; }
+.thumb .strip { font-size: 5.5px; line-height: 10px; padding: 0 4px; }
+.scene[data-step="1"] .ref .cursor { animation: point 4.8s 0.4s infinite both; }
+.scene[data-step="1"] .keys kbd { animation: press 4.8s 0.4s infinite both; }
+.scene[data-step="1"] .keys kbd:nth-child(2) { animation-delay: 0.49s; }
+.scene[data-step="1"] .keys kbd:nth-child(3) { animation-name: press-c; animation-delay: 0.58s; }
+.scene[data-step="1"] .ref::before { animation: close-in 4.8s 0.4s infinite both; }
+.scene[data-step="1"] .ref img { animation: flash 4.8s 0.4s infinite both; }
+.scene[data-step="1"] .copied { animation: rise 4.8s 0.4s infinite both; }
+@keyframes point { 0% { transform: translate(18cqw, 16cqw); opacity: 0; } 8% { opacity: 1; } 26%, 92% { transform: none; opacity: 1; } 100% { transform: none; opacity: 0; } }
+@keyframes press { 0%, 29%, 41%, 100% { transform: none; background: linear-gradient(#2b2b30, #1c1c20); } 31%, 39% { transform: translateY(2px); background: #34343a; } }
+@keyframes press-c { 0%, 29%, 41%, 100% { transform: none; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 2px 0 #5d6c12; } 31%, 39% { transform: translateY(2px); box-shadow: 0 0 0 #5d6c12, 0 0 22px rgba(198, 227, 58, 0.7); } }
+@keyframes close-in { 0%, 36% { opacity: 0; transform: scale(1.04); } 40%, 53% { opacity: 1; transform: none; } 60%, 100% { opacity: 0; } }
+@keyframes flash { 0%, 36%, 46%, 100% { filter: none; } 38% { filter: brightness(1.35) saturate(1.15); } }
+@keyframes rise { 0%, 39% { opacity: 0; transform: translate(-50%, 24px) scale(0.96); } 46%, 90% { opacity: 1; transform: translateX(-50%); } 100% { opacity: 0; transform: translateX(-50%); } }
+
+/* The chat box: the one card of steps 2, 3 and 5. */
+.composer { z-index: 2; left: 3%; width: 94%; top: 26%; height: 60%; border-radius: 3.4cqw; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 3cqw 8cqw rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(6cqw); }
+/* A prompt comes in from the left, as typed text does. */
+.say { position: absolute; left: 5cqw; right: 14cqw; bottom: 4.6cqw; font-size: max(10px, 2.8cqw); line-height: 1.4; clip-path: inset(0 100% 0 0); transition: clip-path 0s 0.5s; }
+.scene[data-step="2"] .s1, .scene[data-step="3"] .s1, .scene[data-step="5"] .s2 { clip-path: inset(0); }
+.scene[data-step="2"] .s1, .scene[data-step="5"] .s2 { transition: clip-path 1s 0.45s steps(26); }
+.send { position: absolute; right: 3.4cqw; bottom: 3.4cqw; display: flex; align-items: center; justify-content: center; width: 6.4cqw; height: 6.4cqw; border-radius: 50%; background: var(--accent); transition: opacity 0.3s, transform 0.5s var(--out); }
+.send svg { width: 50%; height: 50%; fill: none; stroke: var(--on-accent); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* The agent at work. A tool call shows as agents show it: a spinner and a label with a moving light, then a tick and the result. */
+.agent { z-index: 2; left: 4%; width: 92%; top: 48%; }
+.agent > *, .result div, .recall div, .again { opacity: 0; transform: translateY(2.4cqw); transition: opacity 0.4s, transform 0.7s var(--out); }
+.tool { display: inline-grid; grid-template-columns: auto auto; align-items: center; gap: 0 1.6cqw; padding: 1.5cqw 2.4cqw 1.5cqw 1.8cqw; border-radius: 1.8cqw; background: #0b0b0c; box-shadow: 0 0 0 1px var(--border); color: #c9c9ce; font: max(10px, 2.05cqw)/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.tool .spin, .tool .ok { grid-area: 1 / 1; width: 2.6cqw; height: 2.6cqw; }
+.tool .doing, .tool .done { grid-area: 1 / 2; }
+.tool .spin { border: 0.36cqw solid rgba(198, 227, 58, 0.22); border-top-color: var(--accent); border-radius: 50%; opacity: 0; }
+.tool .ok { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tool .doing { background: linear-gradient(90deg, #6d6d75 35%, #fff 50%, #6d6d75 65%) 0 0 / 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; opacity: 0; }
+.tool b { color: var(--accent); font-weight: 400; }
+.scene[data-step="3"] .a3 .spin, .scene[data-step="5"] .a5 .spin { animation: work 2s 0.35s both, turn 0.8s linear infinite; }
+.scene[data-step="3"] .a3 .doing, .scene[data-step="5"] .a5 .doing { animation: work 2s 0.35s both, light 1.3s linear infinite; }
+.scene[data-step="3"] .a3 .done, .scene[data-step="3"] .a3 .ok, .scene[data-step="5"] .a5 .done, .scene[data-step="5"] .a5 .ok { animation: land 2.4s 0.35s both; }
+@keyframes work { 0%, 88% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes land { 0%, 80% { opacity: 0; transform: translateY(0.8cqw); } 100% { opacity: 1; transform: none; } }
+@keyframes turn { to { rotate: 360deg; } }
+@keyframes light { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+.line { display: flex; gap: 2cqw; margin-top: 2.6cqw; font-size: max(10px, 2.8cqw); line-height: 1.4; }
+.line .dot { margin-top: 0.55em; }
+/* What the agent builds from the reference: small cards with one number each. */
+.result { z-index: 2; left: 4%; width: 92%; top: 79%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2cqw; }
+.result div { display: flex; flex-direction: column; gap: 0.6cqw; padding: 2cqw 2.4cqw; border-radius: 2cqw; background: var(--surface); box-shadow: 0 0 0 1px var(--border); color: var(--muted); font-size: max(8px, 1.9cqw); }
+.result b { color: var(--text); font-size: max(13px, 4.2cqw); font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.result div:first-child { box-shadow: 0 0 0 1px rgba(198, 227, 58, 0.55); }
+.result div:first-child b { color: var(--accent); }
+
+/* Step 4: the entry in the vault. */
+.vault { z-index: 3; left: 3%; width: 94%; top: 5%; height: 88%; border-radius: 3.4cqw; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 3cqw 8cqw rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(8cqw); }
+.vault-bar { display: flex; align-items: center; justify-content: space-between; gap: 2cqw; padding: 3.2cqw 4cqw; border-bottom: 1px solid var(--border); font-size: max(11px, 2.5cqw); font-weight: 600; }
+.tag { display: inline-flex; align-items: center; gap: 1.4cqw; color: var(--accent); font-size: max(10px, 2.1cqw); font-weight: 500; white-space: nowrap; }
+.tag.off { padding: 0.5cqw 1.8cqw; border-radius: 99px; box-shadow: 0 0 0 1px var(--border); color: var(--muted); }
+.rows { display: grid; gap: 2.3cqw; margin: 0; }
+.vault .rows { position: absolute; left: 46%; right: 4cqw; top: 18%; }
+.rows div { opacity: 0; transform: translateY(1.6cqw); transition: opacity 0.4s, transform 0.7s var(--out); }
+.rows dt { color: var(--muted); font-size: max(9px, 1.9cqw); }
+.rows dd { margin: 0.2cqw 0 0; font-size: max(11px, 2.55cqw); line-height: 1.3; }
+.passed { position: absolute; left: 4cqw; right: 4cqw; bottom: 3.6cqw; display: flex; align-items: center; gap: 2.6cqw; padding-top: 3.4cqw; border-top: 1px solid var(--border); color: var(--muted); font-size: max(10px, 2.3cqw); line-height: 1.3; opacity: 0; transition: opacity 0.5s; }
+.passed img { flex: none; width: 8cqw; height: 8cqw; border-radius: 1.4cqw; object-fit: cover; filter: grayscale(1); opacity: 0.55; }
+
+/* Step 5: a later task with no picture. The agent finds the reference, and why it was liked. */
+.a5 { top: 27%; }
+.recall { z-index: 2; left: 43%; width: 53%; top: 45%; }
+.again { z-index: 2; left: 4%; width: 92%; top: 78%; margin: 0; }
+
+.scene:not([data-step="1"]) .ref .cursor, .scene:not([data-step="1"]) > .keys, .scene:not([data-step="1"]) > .copied { opacity: 0; }
+.scene:not([data-step="1"]) .ref { box-shadow: 0 1cqw 3cqw rgba(0, 0, 0, 0.4); }
+.scene:not([data-step="1"]) .ref .strip { line-height: 3cqw; opacity: 1; }
+.scene[data-step="2"] .ref { left: 8%; top: 17%; width: 50%; }
+.scene[data-step="2"] .composer { top: 12%; height: 70%; opacity: 1; transform: none; }
+.scene[data-step="3"] .ref { left: 7%; top: 6%; width: 26%; }
+.scene[data-step="3"] .composer { top: 2%; height: 40%; opacity: 1; transform: none; }
+.scene[data-step="3"] .send, .scene[data-step="5"] .send { opacity: 0; transform: translateY(-3cqw); }
+.scene[data-step="3"] .a3 > *, .scene[data-step="5"] .a5 > * { opacity: 1; transform: none; transition-delay: 0.35s; }
+.scene[data-step="3"] .a3 > :nth-child(2) { transition-delay: 2.5s; }
+.scene[data-step="3"] .a3 > :nth-child(3) { transition-delay: 2.75s; }
+.scene[data-step="3"] .result div { opacity: 1; transform: none; transition-delay: 3.1s; }
+.scene[data-step="3"] .result div:nth-child(2) { transition-delay: 3.22s; }
+.scene[data-step="3"] .result div:nth-child(3) { transition-delay: 3.34s; }
+.scene[data-step="4"] .ref { left: 8%; top: 22%; width: 34%; }
+.scene[data-step="4"] .composer { top: -14%; height: 40%; }
+.scene[data-step="4"] .vault { opacity: 1; transform: none; }
+.scene[data-step="4"] .vault .rows div, .scene[data-step="4"] .passed { opacity: 1; transform: none; transition-delay: 0.3s; }
+.scene[data-step="4"] .vault .rows div:nth-child(2) { transition-delay: 0.42s; }
+.scene[data-step="4"] .vault .rows div:nth-child(3) { transition-delay: 0.54s; }
+.scene[data-step="4"] .vault .rows div:nth-child(4) { transition-delay: 0.66s; }
+.scene[data-step="4"] .passed { transition-delay: 0.85s; }
+.scene[data-step="5"] .composer { top: 4%; height: 17%; opacity: 1; transform: none; }
+.scene[data-step="5"] .vault { transform: translateY(-8cqw); }
+/* The reference is away until the agent has found it. */
+.scene[data-step="5"] .ref { left: 4%; top: 44%; width: 34%; animation: found 3s 0.35s both; }
+@keyframes found { 0%, 76% { opacity: 0; transform: translateY(3cqw) scale(0.96); } 100% { opacity: 1; transform: none; } }
+.scene[data-step="5"] .recall div, .scene[data-step="5"] .again { opacity: 1; transform: none; transition-delay: 3.1s; }
+.scene[data-step="5"] .recall div:nth-child(2) { transition-delay: 3.25s; }
+.scene[data-step="5"] .again { transition-delay: 3.6s; }
+
+/* ---- The wall of references: the images carry this part. Four columns of the same height: each holds
+   one wide, one tall and one square tile. The script moves the columns at different speeds. ---- */
+.wall { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding: 40px 0; }
+.wall .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; will-change: transform; }
+.wall figure { border-radius: 14px; background: var(--surface); overflow: hidden; }
+.wall img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.9s var(--out); }
+.wall figure:hover img { transform: scale(1.045); }
+.r32 { aspect-ratio: 3 / 2; }
+.r23 { aspect-ratio: 2 / 3; }
+.r11 { aspect-ratio: 1; }
+.points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px 40px; margin-top: clamp(28px, 4vw, 48px); }
+.points p { margin-top: 6px; color: var(--muted); font-size: 15px; }
+
+/* ---- Free: the price, who does what, and three facts. ---- */
+.free { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+.free-main { grid-column: span 7; position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 48px; min-height: 540px; padding: clamp(28px, 4vw, 52px); border-radius: 28px; background: radial-gradient(120% 90% at 0% 0%, rgba(198, 227, 58, 0.13), transparent 60%), var(--surface); overflow: hidden; }
+.free-main .head { margin: 0; max-width: 520px; }
+.zero { display: flex; align-items: flex-end; gap: 20px; color: var(--muted); font-size: 15px; }
+/* The colour is clipped to the box of the text, so the box has room for the whole glyphs: the tight letter spacing and line height cut them otherwise. */
+.zero b { margin: -0.12em -0.04em -0.14em -0.05em; padding: 0.06em 0.1em 0.06em 0; background: linear-gradient(170deg, #e2f57a, var(--accent) 45%, rgba(198, 227, 58, 0.3)); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: clamp(140px, 21vw, 300px); font-weight: 600; letter-spacing: -0.07em; line-height: 1; }
+.zero span { padding-bottom: 2.2em; }
+.flow { grid-column: span 5; display: flex; flex-direction: column; padding: 16px; border-radius: 28px; background: var(--surface); }
+.node { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 24px 26px; border-radius: 16px; background: var(--surface2); box-shadow: 0 0 0 1px var(--border); }
+.node.lit { box-shadow: 0 0 0 1px rgba(198, 227, 58, 0.5), 0 0 48px -12px rgba(198, 227, 58, 0.4); }
+.node h3 { margin-top: 14px; font-size: 22px; letter-spacing: -0.02em; }
+.node p { margin-top: 6px; color: var(--muted); font-size: 15px; }
+.chip { display: inline-flex; align-items: center; align-self: flex-start; gap: 8px; height: 26px; padding: 0 11px; border-radius: 99px; background: rgba(198, 227, 58, 0.12); color: var(--accent); font-size: 13px; font-weight: 500; }
+.chip.off { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
+/* The wire between the two: dots go down and up, as calls and answers do. */
+.wire { position: relative; display: flex; align-items: center; justify-content: center; height: 92px; overflow: hidden; }
+.wire::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.wire i { position: absolute; left: calc(50% - 2.5px); top: -6px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: down 2.4s linear infinite; }
+.wire i:nth-child(2) { animation-delay: 1.2s; }
+.wire i:nth-child(3), .wire i:nth-child(4) { animation-name: up; animation-delay: 0.6s; opacity: 0.5; }
+.wire i:nth-child(4) { animation-delay: 1.8s; }
+@keyframes down { to { transform: translateY(104px); } }
+@keyframes up { from { transform: translateY(104px); } }
+.wire span { position: relative; padding: 3px 10px; border-radius: 99px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); color: var(--muted); font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.free-points { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.free-points li { padding: 26px 28px 28px; border-radius: var(--r); background: var(--surface); transition: background 0.4s, transform 0.6s var(--out); }
+.free-points li:hover { background: #1b1b1f; transform: translateY(-3px); }
+.free-points svg { width: 44px; height: 44px; margin-bottom: 20px; padding: 10px; border-radius: 12px; background: var(--surface2); fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.free-points p { margin-top: 6px; color: var(--muted); font-size: 15px; }
+
+/* ---- Install: one prompt to copy. The agent of the visitor does the install. ---- */
+.card { border-radius: var(--r); background: var(--surface); box-shadow: 0 0 0 1px var(--border); overflow: hidden; }
+.card-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 14px 14px 24px; border-bottom: 1px solid var(--border); }
+.card-label { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; }
+.card pre { margin: 0; padding: 24px; max-height: 420px; overflow: auto; color: #c9c9ce; font: 13.5px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.card pre:focus-visible { outline-offset: -3px; border-radius: 0 0 var(--r) var(--r); }
+#copy .arrow { padding: 8px; }
+#copy:hover .arrow { transform: scale(1.08); }
+#copy .done-icon, #copy.done .copy-icon { display: none; }
+#copy.done .done-icon { display: inline; }
+code { padding: 2px 6px; border-radius: 6px; background: var(--surface2); color: var(--text); font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.section > .actions { margin-top: 28px; }
+
+/* ---- Closing: the same layers as the hero. Here --sy is the distance of the panel from the middle of the view. ---- */
+.closing { display: flex; flex-direction: column; align-items: center; text-align: center; margin: clamp(88px, 12vw, 168px) 10px 0; padding: clamp(80px, 11vw, 150px) var(--gutter) clamp(200px, 26vw, 380px); border-radius: 28px; }
+.closing .back img { bottom: -12%; transform: translate3d(calc(var(--mx) * -9px), calc(var(--sy) * 0.12px + var(--my) * -6px), 0) scale(1.08); }
+.closing .wisps { transform: translate3d(calc(var(--mx) * -18px), calc(var(--sy) * -0.05px + var(--my) * -10px), 0); }
+.closing h2, .closing p, .closing div[data-reveal] { position: relative; z-index: 2; }
+.closing p { margin: 16px 0 28px; color: #a9a9b0; }
+
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; max-width: calc(var(--page) + 2 * var(--gutter)); margin: 0 auto; padding: 28px var(--gutter) 40px; color: var(--muted); font-size: 14px; }
+.foot .brand { color: var(--text); font-size: 15px; }
+.foot p { flex: 1; min-width: 240px; }
+.foot-links { display: flex; gap: 22px; }
+
+@media (max-width: 900px) {
+  .how { grid-template-columns: 1fr; gap: 0; }
+  /* The scene stays at the top, on a band of the page colour, and the steps pass under the band. */
+  .scene-wrap { order: -1; top: 0; z-index: 3; max-width: none; padding: 10px 0; background: var(--bg); }
+  .scene-wrap::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 28px; background: linear-gradient(var(--bg), transparent); }
+  .scene { max-width: min(480px, calc(44vh / 0.9)); margin: 0 auto; }
+  .how-step { justify-content: flex-start; min-height: 34vh; width: 100%; max-width: 480px; margin: 0 auto; padding-top: 28px; }
+  .points, .free-points { grid-template-columns: 1fr; }
+  .free-main, .flow { grid-column: 1 / -1; }
+  .free-main { min-height: 0; }
+  .wall { grid-template-columns: repeat(3, 1fr); }
+  .wall .col:nth-child(4) { display: none; }
+}
+@media (max-width: 600px) {
+  .hero { margin: 6px; min-height: calc(100svh - 12px); border-radius: 22px; }
+  .nav { padding: 16px 18px; }
+  .nav-links { display: none; }
+  .nav .brand { flex: 1; }
+  .wall { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .wall .col { gap: 10px; }
+  .wall .col:nth-child(3) { display: none; }
+  .closing { margin-inline: 6px; border-radius: 22px; }
+  .fog i, .fog.near i, .wisps i { width: 800%; }
+  .viewfinder { inset: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .hero .back, .hero-text > *, .wisps i, .fog i, .wire i, .scene *, .scene *::before { animation: none !important; }
+  .scene, .scene * { transition: none !important; }
+  .scene { transform: none; }
+  .js [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .pill, .pill .arrow, .scene > *, .scene *, .wall img { transition: none; }
+}
