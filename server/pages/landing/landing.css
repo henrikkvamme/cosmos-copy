@@ -174,22 +174,29 @@ button.keys:hover kbd { transform: translateY(-1px); }
 @keyframes rise { 0%, 39% { opacity: 0; transform: translate(-50%, 24px) scale(0.96); } 46%, 90% { opacity: 1; transform: translateX(-50%); } 100% { opacity: 0; transform: translateX(-50%); } }
 
 /* The prompt of a terminal agent: the text line between two rules, and a status line under it. */
-.composer { z-index: 2; left: 3%; width: 94%; top: 26%; height: 60%; opacity: 0; transform: translateY(6cqw); font: max(9px, 2.5cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
-.composer::before { content: ""; position: absolute; left: 0; right: 0; bottom: 5.4cqw; height: 7.6cqw; border: solid #3a3a41; border-width: 1px 0; }
-.composer::after { content: "\276F"; position: absolute; left: 1cqw; bottom: 7.2cqw; color: var(--accent); }
+.composer { z-index: 2; left: 3%; width: 94%; top: 26%; height: 60%; opacity: 0; transform: translateY(6cqw); font: max(9px, 2.1cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.composer::before { content: ""; position: absolute; left: 0; right: 0; bottom: 4.4cqw; height: 5.8cqw; border: solid #3a3a41; border-width: 1px 0; transition: background-color 0.3s, border-color 0.3s; }
+.composer::after { content: "\276F"; position: absolute; left: 1cqw; bottom: 5.6cqw; color: var(--accent); }
 /* A prompt comes in from the left, as typed text does. */
-.say { position: absolute; left: 4.8cqw; right: 1cqw; bottom: 7.2cqw; white-space: nowrap; clip-path: inset(0 100% 0 0); transition: clip-path 0s 0.5s; }
+.say { position: absolute; left: 4.2cqw; right: 1cqw; bottom: 5.6cqw; white-space: nowrap; clip-path: inset(0 100% 0 0); transition: clip-path 0s 0.5s; }
 .say i { color: var(--accent); font-style: normal; }
 .scene[data-step="2"] .s1, .scene[data-step="3"] .s1, .scene[data-step="5"] .s2 { clip-path: inset(0); }
 .scene[data-step="2"] .s1, .scene[data-step="5"] .s2 { transition: clip-path 1s 0.45s steps(26); }
-.chat-hint { position: absolute; left: 1cqw; bottom: 0.8cqw; color: #77777f; font-size: max(8px, 2cqw); white-space: nowrap; }
+.chat-hint { position: absolute; left: 1cqw; bottom: 0.8cqw; color: #77777f; font-size: max(8px, 1.75cqw); transition: opacity 0.3s; white-space: nowrap; }
 .chat-hint b { color: var(--accent); font-weight: 400; }
+/* Steps 3 and 5: the prompt is sent. It is now a line of the chat, on a grey band, as a terminal agent shows it. */
+.scene[data-step="3"] .composer::before, .scene[data-step="5"] .composer::before { border-color: transparent; background: rgba(255, 255, 255, 0.07); }
+.scene[data-step="3"] .composer::after, .scene[data-step="5"] .composer::after { color: #8a8a92; }
+.scene[data-step="3"] .chat-hint, .scene[data-step="5"] .chat-hint { opacity: 0; }
 
 /* The agent at work. A tool call shows as agents show it: a grid of dots and a label with a moving light, then a tick and the result. */
 .agent { z-index: 2; left: 4%; width: 92%; top: 48%; }
 .agent > *, .result div, .recall div, .again { opacity: 0; transform: translateY(2.4cqw); transition: opacity 0.4s, transform 0.7s var(--out); }
-.tool { display: inline-grid; grid-template-columns: auto auto; align-items: center; gap: 0 1.6cqw; padding: 1.5cqw 2.4cqw 1.5cqw 1.8cqw; border-radius: 1.8cqw; background: #0b0b0c; box-shadow: 0 0 0 1px var(--border); color: #c9c9ce; font: max(10px, 2.05cqw)/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
-.tool .spin, .tool .ok { grid-area: 1 / 1; width: 2.6cqw; height: 2.6cqw; }
+.tool { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 0.4cqw 1.5cqw; color: #d9d9dc; font: max(9px, 2.1cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.tool .spin { grid-area: 1 / 1; width: 2.2cqw; height: 2.2cqw; }
+.tool .ok { grid-area: 1 / 1; justify-self: center; width: 1.3cqw; height: 1.3cqw; border-radius: 50%; background: var(--accent); }
+.tool .sub { grid-area: 2 / 2; color: #8a8a92; }
+.tool .sub b { color: var(--accent); font-weight: 400; }
 .tool .doing, .tool .done { grid-area: 1 / 2; }
 /* The spinner: a grid of 9 dots, and a wave of light that goes from one corner to the other. */
 .tool .spin { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.34cqw; opacity: 0; }
@@ -198,19 +205,18 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .tool .spin i:nth-child(3), .tool .spin i:nth-child(5), .tool .spin i:nth-child(7) { animation-delay: 0.24s; }
 .tool .spin i:nth-child(6), .tool .spin i:nth-child(8) { animation-delay: 0.36s; }
 .tool .spin i:nth-child(9) { animation-delay: 0.48s; }
-.tool .ok { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tool .doing { background: linear-gradient(90deg, #6d6d75 35%, #fff 50%, #6d6d75 65%) 0 0 / 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; opacity: 0; }
 .tool b { color: var(--accent); font-weight: 400; }
 .scene[data-step="3"] .a3 .spin, .scene[data-step="5"] .a5 .spin { animation: work 2s 0.35s both; }
 .scene[data-step="3"] .a3 .spin i, .scene[data-step="5"] .a5 .spin i { animation-name: wave; animation-duration: 1.1s; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
 .scene[data-step="3"] .a3 .doing, .scene[data-step="5"] .a5 .doing { animation: work 2s 0.35s both, light 1.3s linear infinite; }
-.scene[data-step="3"] .a3 .done, .scene[data-step="3"] .a3 .ok, .scene[data-step="5"] .a5 .done, .scene[data-step="5"] .a5 .ok { animation: land 2.4s 0.35s both; }
+.scene[data-step="3"] .a3 :is(.done, .ok, .sub), .scene[data-step="5"] .a5 :is(.done, .ok, .sub) { animation: land 2.4s 0.35s both; }
 @keyframes work { 0%, 88% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes land { 0%, 80% { opacity: 0; transform: translateY(0.8cqw); } 100% { opacity: 1; transform: none; } }
 @keyframes wave { 0%, 60%, 100% { opacity: 0.22; scale: 0.82; } 25% { opacity: 1; scale: 1; } }
 @keyframes light { from { background-position: 100% 0; } to { background-position: -50% 0; } }
-.line { display: flex; gap: 2cqw; margin-top: 2.6cqw; font-size: max(10px, 2.8cqw); line-height: 1.4; }
-.line .dot { margin-top: 0.55em; }
+.line { display: flex; gap: 1.5cqw; margin-top: 2.2cqw; color: #d9d9dc; font: max(9px, 2.1cqw)/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.line .dot { width: 1.3cqw; height: 1.3cqw; margin: 1.05cqw 0.45cqw 0; background: #e8e8ea; }
 /* What the agent builds from the reference: small cards with one number each. */
 .result { z-index: 2; left: 4%; width: 92%; top: 79%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2cqw; }
 .result div { display: flex; flex-direction: column; gap: 0.6cqw; padding: 2cqw 2.4cqw; border-radius: 2cqw; background: var(--surface); box-shadow: 0 0 0 1px var(--border); color: var(--muted); font-size: max(8px, 1.9cqw); }
