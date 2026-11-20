@@ -36,9 +36,13 @@
     return w > 0 && h > 0 ? w * h : 0;
   };
 
-  // Right after injection there is no mouse position yet, so use the :hover chain.
-  const elementsUnderCursor = () =>
-    mouse ? document.elementsFromPoint(mouse.x, mouse.y) : [...document.querySelectorAll(":hover")].reverse();
+  // Right after injection there is no mouse position yet, so use the :hover chain. The page also gets
+  // no mouse position while the cursor is in a frame: the last one is from before the cursor went in.
+  const isFrame = (el) => !!el?.matches("iframe, object, embed");
+  const elementsUnderCursor = () => {
+    const hovered = [...document.querySelectorAll(":hover")].reverse();
+    return mouse && !isFrame(hovered[0]) ? document.elementsFromPoint(mouse.x, mouse.y) : hovered;
+  };
 
   // A Cosmos card under the cursor, else the element page that is open.
   function cosmosTarget(underCursor) {
@@ -51,18 +55,74 @@
     return pageId ? { elementId: pageId } : null;
   }
 
+  const area = (el) => {
+    const r = el.getBoundingClientRect();
+    return r.width * r.height;
+  };
+  // False for an element that takes no space or is hidden, also by an ancestor with opacity 0.
+  const shown = (el) => area(el) > 0 && (el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }) ?? true);
+  const holds = (el, point) => {
+    const r = el.getBoundingClientRect();
+    return point.x >= r.left && point.x <= r.right && point.y >= r.top && point.y <= r.bottom;
+  };
+  const commonParent = (a, b) => {
+    let el = a;
+    while (el && !el.contains(b)) el = el.parentElement;
+    return el;
+  };
+  // The size of the smallest part of the page that holds both elements. The body is the whole page.
+  const sharedArea = (a, b) => {
+    const parent = commonParent(a, b);
+    return !parent || parent === document.body || parent === document.documentElement ? Infinity : area(parent);
+  };
+  // True when two elements take about the same place, as a video and its poster image do.
+  const samePlace = (a, b) => {
+    const ra = a.getBoundingClientRect();
+    const rb = b.getBoundingClientRect();
+    const w = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
+    const h = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
+    return w > 0 && h > 0 && (w * h) / (area(a) + area(b) - w * h) > 0.6;
+  };
+
+  // The images and videos at the cursor, the one to copy first.
+  // elementsFromPoint leaves out an element with pointer-events: none. Many sites play the video of a
+  // card in such a layer over the poster image, so the hit test alone finds only the poster.
+  function mediaAtCursor(underCursor) {
+    const top = underCursor[0];
+    if (!top) return [];
+    const box = top.getBoundingClientRect();
+    const point = mouse && !isFrame(top) ? mouse : { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    const hit = underCursor.filter((el) => (el.tagName === "IMG" || el.tagName === "VIDEO") && shown(el));
+    // Media that the hit test left out counts only when it is in the same small part of the page as
+    // the top element. This keeps out a picture that lies behind a dialog.
+    const near = [...document.querySelectorAll("img, video")].filter(
+      (el) => !hit.includes(el) && holds(el, point) && shown(el) && sharedArea(el, top) <= 3 * area(el),
+    );
+    const found = [...hit, ...near];
+    // A video that plays in the place of the first image is what the user sees: it goes first.
+    const first = found[0];
+    const video = first?.tagName === "IMG" && found.find((el) => el.tagName === "VIDEO" && mediaSource(el) && samePlace(el, first));
+    return video ? [video, ...found.filter((el) => el !== video)] : found;
+  }
+
   function findTarget() {
     const underCursor = elementsUnderCursor();
     // 1 and 2. A Cosmos card under the cursor, or the open element page.
     const onCosmos = cosmosTarget(underCursor);
     if (onCosmos) return onCosmos;
 
-    // 3. Any other site: the image or video under the cursor, else the largest visible one.
-    const hovered = underCursor.find((el) => el.tagName === "IMG" || el.tagName === "VIDEO");
-    const candidates = hovered
-      ? [hovered]
+    // 3. Any other site: the image or video at the cursor.
+    const atCursor = mediaAtCursor(underCursor);
+    // A frame or a canvas draws its own content: there is no file to copy, and a picture from
+    // another part of the page is not what the user points at.
+    if (!atCursor.length && (isFrame(underCursor[0]) || underCursor[0]?.tagName === "CANVAS")) {
+      return { error: "Live content has no image or video to copy. Hover an image or a video and try again." };
+    }
+    // 4. Nothing at the cursor: the largest one in view.
+    const candidates = atCursor.length
+      ? atCursor
       : [...document.querySelectorAll("img, video")]
-          .filter((el) => visibleArea(el) > 100 * 100)
+          .filter((el) => shown(el) && visibleArea(el) > 100 * 100)
           .sort((a, b) => visibleArea(b) - visibleArea(a));
     for (const el of candidates) {
       const media = mediaSource(el);
