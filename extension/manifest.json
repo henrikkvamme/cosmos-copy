@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TasteRef",
-  "version": "3.5.1",
+  "version": "3.6.0",
   "description": "Copy the image or video under your cursor on any site and paste it into AI agents as a design reference.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvD8kSjUduVYmGiR0VDLWV/GaP9urKK9JRbaGS0iphmZSLpAI1TWfpongCMuuImW842a6ro8EFg21nyz12cu3yli9SZh6erTUszwb9vpuRNCPfPjowCzNk2Pll3LBXzrry1+i1LaMmaKZVsxhApKU97j2zLMJJe3eSOg9fwz+tHr70BdYc2Raio7CeZXGhk6m/V5P88brP267QkeoKWbkhgEZqN3+sxnWkbAKtF4pm40rBY135hYjhDUyk29jdmqaCkELUsN3eRuzgpesEBTT/cMjvJ8y0lA90k/m7Gc1NL23ELzldHI0voZ25nOBQfH65f3Ztv9T2uRwbEp9+kTw2wIDAQAB",
   "permissions": [

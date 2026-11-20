@@ -49,11 +49,17 @@
     for (const el of underCursor) {
       const link = el.closest?.('a[href*="/e/"]');
       const id = link && elementId(link.getAttribute("href"));
-      if (id) return { elementId: id };
+      if (id) return { elementId: id, el: link.querySelector("img, video") ?? link };
     }
     const pageId = location.hostname.endsWith("cosmos.so") && elementId(location.href);
-    return pageId ? { elementId: pageId } : null;
+    return pageId ? { elementId: pageId, el: largestMedia()[0] } : null;
   }
+
+  // The images and videos in view, the largest first.
+  const largestMedia = () =>
+    [...document.querySelectorAll("img, video")]
+      .filter((el) => shown(el) && visibleArea(el) > 100 * 100)
+      .sort((a, b) => visibleArea(b) - visibleArea(a));
 
   const area = (el) => {
     const r = el.getBoundingClientRect();
@@ -106,10 +112,14 @@
   }
 
   function findTarget() {
+    picked = null;
     const underCursor = elementsUnderCursor();
     // 1 and 2. A Cosmos card under the cursor, or the open element page.
     const onCosmos = cosmosTarget(underCursor);
-    if (onCosmos) return onCosmos;
+    if (onCosmos) {
+      mark(onCosmos.el);
+      return { elementId: onCosmos.elementId };
+    }
 
     // 3. Any other site: the image or video at the cursor.
     const atCursor = mediaAtCursor(underCursor);
@@ -119,16 +129,88 @@
       return { error: "Live content has no image or video to copy. Hover an image or a video and try again." };
     }
     // 4. Nothing at the cursor: the largest one in view.
-    const candidates = atCursor.length
-      ? atCursor
-      : [...document.querySelectorAll("img, video")]
-          .filter((el) => shown(el) && visibleArea(el) > 100 * 100)
-          .sort((a, b) => visibleArea(b) - visibleArea(a));
-    for (const el of candidates) {
+    for (const el of atCursor.length ? atCursor : largestMedia()) {
       const media = mediaSource(el);
-      if (media) return { media };
+      if (!media) continue;
+      mark(el);
+      return { media };
     }
     return { error: "No image or video found. Hover one and try again." };
+  }
+
+  // ---- What the user sees of a copy: a lime frame on the copied element, and its picture in the toast. ----
+  const LIME = "#c6e33a";
+  const calm = matchMedia("(prefers-reduced-motion: reduce)");
+  let picked = null;
+
+  // The round corners of the element. Often a parent of the same size cuts them, not the element.
+  function cornersOf(el, box) {
+    for (let node = el; node && node !== document.body; node = node.parentElement) {
+      const r = node.getBoundingClientRect();
+      if (Math.abs(r.width - box.width) > 2 || Math.abs(r.height - box.height) > 2) break;
+      const radius = getComputedStyle(node).borderRadius;
+      if (parseFloat(radius) > 0) return radius;
+    }
+    return "0px";
+  }
+
+  // Shows which element is copied: a frame that closes in on it, and a short flash of light.
+  function mark(el) {
+    picked = el ?? null;
+    if (!el?.isConnected) return;
+    const box = el.getBoundingClientRect();
+    if (box.width < 8 || box.height < 8) return;
+    const frame = document.createElement("div");
+    Object.assign(frame.style, {
+      position: "fixed",
+      left: `${box.left}px`,
+      top: `${box.top}px`,
+      width: `${box.width}px`,
+      height: `${box.height}px`,
+      zIndex: 2147483646,
+      boxSizing: "border-box",
+      border: `3px solid ${LIME}`,
+      borderRadius: cornersOf(el, box),
+      boxShadow: "0 0 0 1px rgba(17,17,19,.5), 0 0 28px rgba(198,227,58,.45)",
+      pointerEvents: "none",
+      opacity: "0",
+    });
+    document.documentElement.appendChild(frame);
+    const frames = calm.matches
+      ? [{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }]
+      : [
+          { opacity: 0, transform: "scale(1.06)" },
+          { opacity: 1, transform: "none", offset: 0.18 },
+          { opacity: 1, transform: "none", offset: 0.7 },
+          { opacity: 0, transform: "none" },
+        ];
+    frame.animate(frames, { duration: 1100, easing: "cubic-bezier(.16,1,.3,1)" }).finished.then(
+      () => frame.remove(),
+      () => frame.remove(),
+    );
+    if (!calm.matches) {
+      el.animate([{ filter: "none" }, { filter: "brightness(1.35) saturate(1.15)", offset: 0.25 }, { filter: "none" }], { duration: 520, easing: "ease-out" });
+    }
+  }
+
+  // A small picture of the copied element. A canvas shows the current frame of a video too, and it
+  // needs no second download.
+  function preview(el) {
+    const width = el.naturalWidth || el.videoWidth;
+    const height = el.naturalHeight || el.videoHeight;
+    if (!el.isConnected || !width || !height) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = 128;
+    canvas.height = Math.round(Math.min(96, Math.max(48, (128 * height) / width)));
+    // Cover: the middle of the picture fills the canvas.
+    const scale = Math.max(canvas.width / width, canvas.height / height);
+    try {
+      canvas.getContext("2d").drawImage(el, (canvas.width - width * scale) / 2, (canvas.height - height * scale) / 2, width * scale, height * scale);
+    } catch {
+      return null; // a broken image
+    }
+    Object.assign(canvas.style, { display: "block", width: "64px", height: `${canvas.height / 2}px`, borderRadius: "8px", background: "#0b0b0c" });
+    return canvas;
   }
 
   let toastTimer;
@@ -143,18 +225,28 @@
         bottom: "32px",
         transform: "translateX(-50%)",
         zIndex: 2147483647,
-        padding: "10px 16px",
-        borderRadius: "10px",
-        font: "500 13px/1.3 -apple-system, BlinkMacSystemFont, sans-serif",
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        borderRadius: "16px",
+        font: "500 14px/1.3 -apple-system, BlinkMacSystemFont, sans-serif",
         color: "#fff",
-        boxShadow: "0 6px 24px rgba(0,0,0,.3)",
         pointerEvents: "none",
         maxWidth: "80vw",
       });
       document.documentElement.appendChild(el);
+      if (!calm.matches) {
+        el.animate([{ opacity: 0, transform: "translate(-50%, 12px)" }, { opacity: 1, transform: "translateX(-50%)" }], { duration: 320, easing: "cubic-bezier(.16,1,.3,1)" });
+      }
     }
-    el.textContent = text;
-    el.style.background = isError ? "#b42318" : "#111";
+    // An error shows no picture: nothing was copied.
+    const picture = !isError && picked ? preview(picked) : null;
+    const label = document.createElement("span");
+    label.textContent = text;
+    el.replaceChildren(...(picture ? [picture, label] : [label]));
+    el.style.padding = picture ? "8px 18px 8px 8px" : "10px 16px";
+    el.style.background = isError ? "#b42318" : "rgba(28, 28, 32, 0.94)";
+    el.style.boxShadow = "0 0 0 1px rgba(255,255,255,.1), 0 18px 50px rgba(0,0,0,.55)";
     el.style.opacity = "1";
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.remove(), isError ? 5000 : 2500);
@@ -178,12 +270,14 @@
         if (e.key.toLowerCase() !== "c" || e.altKey || e.ctrlKey || e.metaKey || e.isComposing) return;
         const focused = e.composedPath?.()[0] ?? e.target;
         if (isTextField(focused) || isTextField(document.activeElement)) return;
-        const target = cosmosTarget(elementsUnderCursor());
-        if (!target) return;
+        const found = cosmosTarget(elementsUnderCursor());
+        if (!found) return;
+        const target = { elementId: found.elementId };
         e.preventDefault();
         e.stopImmediatePropagation();
         swallowed = true;
         if (e.repeat) return;
+        mark(found.el);
         chrome.runtime.sendMessage({ type: "cosmos-copy:copy", target, add: e.shiftKey }).catch(() => {
           toast("TasteRef was updated. Reload the page to copy.", true);
         });
