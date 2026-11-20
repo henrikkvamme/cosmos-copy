@@ -19,6 +19,8 @@ import {
   type BoardRef,
   type HistoryEntry,
   type HistoryItem,
+  PASS_KINDS,
+  type PassKind,
   type PickStore,
   type Session,
   type Tile,
@@ -101,6 +103,14 @@ export const SHOW_TEXT =
   "At the end, show the variants: call show_variants with the picks each variant takes from, and upload a screenshot of each. " +
   "When the user accepts a design, call note_result.";
 
+/** The agent keeps the context of each reference itself. The user is never asked for it. */
+export const RECORD_TEXT =
+  "Record the context of each reference yourself, without a question to the user. When you build from a reference, call note_references " +
+  "with the task, the project and the reference in used: why the user chose it, which parts of it they like, how the design uses it, and " +
+  "what changed. When the user says that they do not want a reference, or do not like what came of it, call note_references with it in " +
+  "rejected (because disliked or result, and the reason). When the work ends and a reference was not used, record it in rejected with " +
+  "because unused. The next design task reads all of this from the history.";
+
 /** The final screenshot of a style record: small enough to send in a tool result, three per history page. */
 const RESULT_WIDTH = 1280;
 const RESULT_MAX_HEIGHT = 2000;
@@ -172,6 +182,19 @@ function referenceLine(number: number, reference: Reference): string {
   return `${number}. [${reference.id}] ${kind}${what ? `: ${what}` : ""}`;
 }
 
+const PASS_WORDS: Record<PassKind, string> = { disliked: "the user does not want it", result: "the user did not like what came of it", unused: "not used in the end" };
+
+/** The notes of a history item, on the lines after its number. */
+function itemNotes(item: HistoryItem): string {
+  const lines: string[] = [];
+  if (item.use) {
+    lines.push(`why chosen: ${short(item.use.why, 200)}`, `liked: ${short(item.use.liked, 200)}`, `used for: ${short(item.use.how, 200)}`);
+    if (item.use.changed) lines.push(`changed: ${short(item.use.changed, 200)}`);
+  }
+  if (item.pass) lines.push(`passed: ${PASS_WORDS[item.pass.because]}${item.pass.reason ? `. ${short(item.pass.reason, 200)}` : ""}`);
+  return lines.map((line) => `\n     ${line}`).join("");
+}
+
 function toTile(reference: Reference, round: number): Tile | undefined {
   // Tiles come from references that this server resolved: the Cosmos CDN, or the own vault.
   const thumb = reference.thumbnailUrl;
@@ -190,6 +213,35 @@ function toTile(reference: Reference, round: number): Tile | undefined {
 function sessionIdFrom(value: string): string | undefined {
   const match = /([A-Za-z0-9_-]{43})\/?$/.exec(value.trim());
   return match && ID_PATTERN.test(match[1]!) ? match[1] : undefined;
+}
+
+/**
+ * What the history says about each reference: the tasks it was used or passed in, with the notes
+ * of the agent. Search, list and get_reference add it, so an agent that finds a reference also
+ * finds why the user liked or passed it.
+ */
+export async function historyContext(ctx: DesignContext): Promise<(id: string) => string> {
+  const entries = ctx.userId ? await ctx.picks.history(ctx.userId).catch(() => []) : [];
+  const byId = new Map<string, string[]>();
+  for (const entry of entries) {
+    for (const item of [...entry.picked, ...entry.passed]) {
+      if (!item.use && !item.pass) continue;
+      const where = `"${entry.task}"${entry.project ? `, project ${entry.project}` : ""} (${entry.at.slice(0, 10)})`;
+      const parts: string[] = [];
+      if (item.use) {
+        parts.push(`why chosen: ${short(item.use.why, 160)}`, `liked: ${short(item.use.liked, 160)}`, `used for: ${short(item.use.how, 160)}`);
+        if (item.use.changed) parts.push(`changed: ${short(item.use.changed, 160)}`);
+      }
+      if (item.pass) parts.push(`passed: ${PASS_WORDS[item.pass.because]}${item.pass.reason ? ` (${short(item.pass.reason, 160)})` : ""}`);
+      const lines = byId.get(item.id) ?? [];
+      lines.push(`  ${item.use ? "used in" : "shown in"} ${where}: ${parts.join("; ")}`);
+      byId.set(item.id, lines);
+    }
+  }
+  return (id) => {
+    const lines = byId.get(id);
+    return lines ? `\n${lines.slice(0, 3).join("\n")}${lines.length > 3 ? `\n  (${lines.length - 3} more tasks)` : ""}` : "";
+  };
 }
 
 export function registerDesignTools(server: McpServer, ctx: DesignContext, withToken: WithToken): void {
@@ -275,9 +327,10 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
     source: string,
   ): Promise<CallToolResult> {
     const numbered = references.map((reference, index) => ({ reference, number: first + index }));
+    const used = await historyContext(ctx);
     const groups = chunk(numbered, PER_SHEET).map((part) => ({
       cells: part.map(({ reference, number }) => ({ number, thumb: reference.thumbnailUrl, width: reference.width })),
-      lines: part.map(({ reference, number }) => referenceLine(number, reference)),
+      lines: part.map(({ reference, number }) => referenceLine(number, reference) + used(reference.id)),
     }));
     if (groups.length === 0) {
       return {
@@ -364,7 +417,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
             return {
               title: `Task "${entry.task}" (${entry.at.slice(0, 10)})${entry.project ? `, project "${entry.project}"` : ""}: picked ${range(pickedNumbers)}, passed ${range(passedNumbers)}${hiddenPassed > 0 ? ` (${hiddenPassed} more passes not shown)` : ""}.`,
               cells,
-              lines: items.map(({ item }, index) => `${cells[index]!.number}. [${item.id}]`),
+              lines: items.map(({ item }, index) => `${cells[index]!.number}. [${item.id}]${itemNotes(item)}`),
               after: after || undefined,
             };
           }),
@@ -378,7 +431,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           nextCursor,
           term
             ? "To design in the style of this project, match the final screenshot, and use the references and the deviations to see what the style keeps and what it changes."
-            : `Use what they picked and passed to choose and order the candidates for the new task. ${AFTER_HISTORY}`,
+            : `Use what they picked and passed, and why, to choose and order the candidates for the new task: prefer what they liked, and leave out what they disliked. ${AFTER_HISTORY}`,
           {
             source,
             projects,
@@ -387,6 +440,9 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
               at: entry.at,
               picked: entry.picked.map((i) => i.id),
               passed: entry.passed.length,
+              notes: [...entry.picked, ...entry.passed]
+                .filter((i) => i.use || i.pass)
+                .map((i) => ({ id: i.id, ...(i.use ? { use: { why: i.use.why, liked: i.use.liked, how: i.use.how, ...(i.use.changed ? { changed: i.use.changed } : {}) } } : {}), ...(i.pass ? { pass: { because: i.pass.because, ...(i.pass.reason ? { reason: i.pass.reason } : {}) } } : {}) })),
               ...(entry.project ? { project: entry.project } : {}),
               ...(entry.result ? { result: { variant: entry.result.variant, took: entry.result.took.map(({ id, what }) => ({ id, what })), deviations: entry.result.deviations } } : {}),
             })),
@@ -582,6 +638,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         `1. Plan. ${PLAN_TEXT}`,
         `2. Build each variant. ${BUILD_TEXT}`,
         `3. Show. ${SHOW_TEXT}`,
+        "",
+        RECORD_TEXT,
       ].join("\n"),
     });
     return {
@@ -707,6 +765,8 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         "Then give the user the canvas link. They pick one and continue by prompt: keep it, mix two, or make it more unique.",
         "When they accept a design, call note_result with this canvas link, the number of the variant, the project and the deviations. " +
           "If the accepted design is not on a canvas, call show_variants with it first.",
+        "",
+        `Now call note_references with the task "${task.trim()}", the project and each reference the variants take from in used. ${RECORD_TEXT}`,
       ];
       if (missing.length) lines.push("", `Left out (could not be read): ${missing.join(", ")}.`);
       return { content: [{ type: "text", text: lines.join("\n") }], structuredContent: { link, uploads, missing } };
@@ -769,7 +829,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       try {
         // The file is written first, and the history changes in one step after it. A file that no entry names is deleted later.
         const file = await ctx.picks.writeResultImage(ctx.userId, image.data);
-        const { replaced } = await ctx.picks.noteResult(ctx.userId, found.board.task, project.trim(), {
+        const { replaced, unused } = await ctx.picks.noteResult(ctx.userId, found.board.task, project.trim(), {
           at: new Date().toISOString(),
           board: found.hash,
           variant: chosen.name,
@@ -786,10 +846,14 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
               text:
                 `${replaced ? "Replaced" : "Recorded"} the style record of "${found.board.task}" for the project "${project.trim()}": variant "${chosen.name}", ` +
                 `${taken.length} reference${taken.length === 1 ? "" : "s"} and the final screenshot. ` +
-                `A later task gets it with contact_sheet, source history, project "${project.trim()}".`,
+                `A later task gets it with contact_sheet, source history, project "${project.trim()}".` +
+                (unused.length
+                  ? ` The picks that the design does not take from are now passed as not used: ${unused.map((u) => `[${u}]`).join(", ")}. If you know why one was not used, call note_references with it in rejected, because unused, and the reason.`
+                  : "") +
+                ` Make sure that each reference the design takes from has a note: call note_references with used for any that has none.`,
             },
           ],
-          structuredContent: { task: found.board.task, project: project.trim(), variant: chosen.name, took: taken.map(({ id: takeId, what }) => ({ id: takeId, what })), replaced },
+          structuredContent: { task: found.board.task, project: project.trim(), variant: chosen.name, took: taken.map(({ id: takeId, what }) => ({ id: takeId, what })), replaced, unused },
         };
       } catch (error) {
         ctx.log({ level: "error", event: "result_write_failed", error: error instanceof Error ? error.message : String(error) });
@@ -802,19 +866,23 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
 
   const MAX_NOTED = 20;
   // Some models send one label as a plain value, not as a list. In a test, GPT-6 Luna did so in 9 of 14 runs.
-  const oneAsList = (value: unknown): unknown => (typeof value === "string" || typeof value === "number" ? [value] : value);
+  const oneAsList = (value: unknown): unknown =>
+    typeof value === "string" || typeof value === "number" || (value && typeof value === "object" && !Array.isArray(value)) ? [value] : value;
+  const refSchema = z.union([z.string().min(1).max(200), z.number().int().positive()]).describe("A label from a strip, a file name, or a reference id.");
 
   server.registerTool(
     "note_references",
     {
-      title: "Note pasted and rejected references",
+      title: "Record pasted, used and passed references",
       description:
         'Call this first when an image in the chat has a dark strip at its bottom edge with a label such as "cosmos 1850854004-65 · call ' +
         'note_references" (a reference id and two check digits). The user copied that image from Cosmos as a reference for the task. Give the ' +
         'labels in pasted. Call it also when the user attached a file with a name such as "cosmos-1277394779.mp4" (a video has no strip): give ' +
         "the file name in pasted. The call returns at once and does not wait for the user. It records the references as their picks, so no picker is " +
-        "needed, and it returns the next steps. The strip is not part of the design. Call it again with rejected when the user says that they " +
-        "does not want a reference, or did not like what came of it: it then counts as passed.",
+        "needed, and it returns the next steps. The strip is not part of the design. " +
+        "Call it also, without a question to the user, to record the context of references: in used when you build from a reference (why the " +
+        "user chose it, which parts they like, how the design uses it, what changed), and in rejected when the user does not want a reference, " +
+        "did not like what came of it, or when it was not used in the end. The next design task reads this from the history.",
       inputSchema: {
         task: z.string().min(1).max(200).describe('The design task in a few words, such as "Onboarding for an iOS travel app". Use the same words in later calls for this task.'),
         pasted: z
@@ -824,15 +892,49 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
             'The labels on the strips of the pasted images, read digit by digit, such as "1850854004-65". The check digits are required. ' +
               'For an attached file without a strip, its name, such as "cosmos-1277394779.mp4".',
           ),
-        rejected: z
-          .preprocess(oneAsList, z.array(z.union([z.string().min(1).max(200), z.number().int().positive()])).max(MAX_NOTED))
+        project: z.string().min(1).max(80).optional().describe('The app or repository the task is for, such as "zug-web". Use the same name each time.'),
+        used: z
+          .preprocess(
+            oneAsList,
+            z
+              .array(
+                z.object({
+                  id: refSchema,
+                  why: z.string().min(1).max(400).describe("Why the user chose it as a reference, from their words and picks."),
+                  liked: z.string().min(1).max(400).describe('The parts of it that the user likes, such as "the dense table and the muted colours".'),
+                  how: z.string().min(1).max(400).describe('How the design uses it, such as "layout of the dashboard home".'),
+                  changed: z.string().min(1).max(400).optional().describe("What changed in the design because of it, or what the user changed later."),
+                }),
+              )
+              .max(MAX_NOTED),
+          )
           .optional()
-          .describe("References the user rejects: a label from a strip, a file name, or a reference id."),
+          .describe("References you build from, with their context. A new call for the same reference replaces its note."),
+        rejected: z
+          .preprocess(
+            oneAsList,
+            z
+              .array(
+                z.union([
+                  refSchema,
+                  z.object({
+                    id: refSchema,
+                    because: z.enum(PASS_KINDS).describe("disliked: the user does not want it. result: the user did not like what came of it. unused: it was not used in the end."),
+                    reason: z.string().min(1).max(400).optional().describe("Why, in one sentence, from the user's words or the work."),
+                  }),
+                ]),
+              )
+              .max(MAX_NOTED),
+          )
+          .optional()
+          .describe("Passed references: a label from a strip, a file name or a reference id, or an object with the id, because and reason. A plain value counts as disliked."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async ({ task, pasted = [], rejected = [] }) => {
-      if (pasted.length === 0 && rejected.length === 0) return errorResult('Nothing was recorded: give the labels in "pasted", the rejected references in "rejected", or both. Example: {"task": "Travel app home screen", "pasted": ["1850854004-65"]}.');
+    async ({ task, project, pasted = [], used = [], rejected = [] }) => {
+      if (pasted.length === 0 && used.length === 0 && rejected.length === 0) {
+        return errorResult('Nothing was recorded: give the labels in "pasted", used references in "used", passed references in "rejected", or more than one. Example: {"task": "Travel app home screen", "pasted": ["1850854004-65"]}.');
+      }
       const pastedIds: string[] = [];
       const misread: string[] = [];
       for (const raw of pasted) {
@@ -841,14 +943,27 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         if (!id) misread.push(String(raw).trim());
         else if (!pastedIds.includes(id)) pastedIds.push(id);
       }
-      const rejectedIds: string[] = [];
-      for (const raw of rejected) {
-        // A plain id is fine here. A label must still pass its check digits.
+      // A plain id is fine for used and rejected. A label must still pass its check digits.
+      const anyId = (raw: string | number): string | undefined => {
         const label = parseLabel(raw);
-        const id = "id" in label ? label.id : (parseFileName(raw) ?? parseId(raw));
-        if (!id) misread.push(String(raw));
-        else if (!rejectedIds.includes(id)) rejectedIds.push(id);
+        return "id" in label ? label.id : (parseFileName(raw) ?? parseId(raw));
+      };
+      const at = new Date().toISOString();
+      const uses = new Map<string, { why: string; liked: string; how: string; changed?: string }>();
+      for (const entry of used) {
+        const id = anyId(entry.id);
+        if (!id) misread.push(String(entry.id));
+        else uses.set(id, { why: entry.why.trim(), liked: entry.liked.trim(), how: entry.how.trim(), ...(entry.changed?.trim() ? { changed: entry.changed.trim() } : {}) });
       }
+      const passes = new Map<string, { because: PassKind; reason?: string }>();
+      for (const entry of rejected) {
+        const raw = typeof entry === "object" ? entry.id : entry;
+        const id = anyId(raw);
+        if (!id) misread.push(String(raw));
+        else passes.set(id, typeof entry === "object" ? { because: entry.because, ...(entry.reason?.trim() ? { reason: entry.reason.trim() } : {}) } : { because: "disliked" });
+      }
+      const usedIds = [...uses.keys()];
+      const rejectedIds = [...passes.keys()];
       if (misread.length) {
         return errorResult(
           `Nothing was recorded. ${misread.map((m) => `"${m}"`).join(", ")} ${misread.length === 1 ? "is not a label with correct check digits" : "are not labels with correct check digits"}. ` +
@@ -890,7 +1005,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         const tile = toTile(reference, 0);
         return tile ? { id, thumb: tile.thumb } : "absent";
       };
-      const all = [...new Set([...pastedIds, ...rejectedIds])];
+      const all = [...new Set([...pastedIds, ...usedIds, ...rejectedIds])];
       const looked = await mapLimit(all, RESOLVE_CONCURRENCY, itemFor);
       if (looked.includes("failed")) {
         return errorResult("Nothing was recorded: Cosmos did not answer for some of the references. The labels are fine. Call note_references again with the same values in a moment.");
@@ -899,24 +1014,30 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       looked.forEach((item, index) => items.set(all[index]!, typeof item === "string" ? undefined : item));
       const missing = all.filter((id) => !items.get(id));
       const found = (ids: string[]) => ids.map((id) => items.get(id)).filter((item): item is HistoryItem => item !== undefined);
-      const picks = found(pastedIds.filter((id) => !rejectedIds.includes(id)));
-      const passes = found(rejectedIds);
-      if (picks.length === 0 && passes.length === 0) {
+      const picks = found(pastedIds.filter((id) => !rejectedIds.includes(id) && !usedIds.includes(id)));
+      const usedItems = found(usedIds.filter((id) => !rejectedIds.includes(id))).map((item) => ({ ...item, use: { at, ...uses.get(item.id)! } }));
+      // A reference in used and rejected is passed, and keeps the use note of this call.
+      const passedItems = found(rejectedIds).map((item) => {
+        const use = uses.get(item.id);
+        return { ...item, ...(use ? { use: { at, ...use } } : {}), pass: { at, ...passes.get(item.id)! } };
+      });
+      if (picks.length === 0 && usedItems.length === 0 && passedItems.length === 0) {
         return errorResult(`Nothing was recorded: Cosmos has no reference with the id ${missing.join(", ")}. Read the strip or the file name again.`);
       }
       try {
-        await ctx.picks.noteReferences(ctx.userId, task, picks, passes);
+        await ctx.picks.noteReferences(ctx.userId, task, { pasted: picks, used: usedItems, passed: passedItems, project });
       } catch (error) {
         ctx.log({ level: "error", event: "history_write_failed", error: (error as Error).message });
         return errorResult("The server could not store this. Try again later.");
       }
-      ctx.log({ event: "references_noted", pasted: picks.length, rejected: passes.length });
+      ctx.log({ event: "references_noted", pasted: picks.length, used: usedItems.length, rejected: passedItems.length });
 
       const name = task.trim();
       const list = (noted: HistoryItem[]) => noted.map((item) => `[${item.id}]`).join(", ");
       const lines: string[] = [];
       if (picks.length) lines.push(`Recorded ${picks.length} pasted ${picks.length === 1 ? "reference" : "references"} as the user's picks for "${name}": ${list(picks)}.`);
-      if (passes.length) lines.push(`Marked ${passes.length} ${passes.length === 1 ? "reference" : "references"} as passed for "${name}": ${list(passes)}. Do not build from ${passes.length === 1 ? "it" : "them"}.`);
+      if (usedItems.length) lines.push(`Recorded how ${usedItems.length === 1 ? "1 reference is" : `${usedItems.length} references are`} used in "${name}": ${list(usedItems)}.`);
+      if (passedItems.length) lines.push(`Marked ${passedItems.length} ${passedItems.length === 1 ? "reference" : "references"} as passed for "${name}": ${list(passedItems)}. Do not build from ${passedItems.length === 1 ? "it" : "them"}.`);
       if (missing.length) lines.push(`Left out (Cosmos has no reference with this id): ${missing.join(", ")}.`);
       if (picks.length) {
         lines.push(
@@ -929,12 +1050,12 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           `2. Build each variant. ${BUILD_TEXT}`,
           `3. Show. ${SHOW_TEXT}`,
           "",
-          "When the user says later that they do not want a reference, or did not like what came of it, call note_references again with it in rejected.",
+          RECORD_TEXT,
         );
       }
       return {
         content: [{ type: "text", text: lines.join("\n") }],
-        structuredContent: { task: name, picked: picks.map((item) => item.id), passed: passes.map((item) => item.id), missing },
+        structuredContent: { task: name, picked: picks.map((item) => item.id), used: usedItems.map((item) => item.id), passed: passedItems.map((item) => item.id), missing },
       };
     },
   );

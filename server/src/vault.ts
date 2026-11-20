@@ -19,7 +19,7 @@ import {
   type RawElement,
   type Reference,
 } from "./cosmos.js";
-import { registerDesignTools, type DesignContext } from "./design.js";
+import { historyContext, registerDesignTools, type DesignContext } from "./design.js";
 import {
   compactText,
   DEFAULT_LIMIT,
@@ -478,7 +478,12 @@ export function buildVaultInstructions(username: string): string {
     "First look at the images in the user's message. An image that they copied with TasteRef has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65 · call note_references\" or \"tasteref t123456789012345-42 · call note_references\": the reference id and two check digits. The strip is not part of the design.",
     "A file that they attached with a name such as \"cosmos-1277394779.mp4\" or \"tasteref-t123456789012345.mp4\" is also a reference they copied: a video has no strip, so give its file name in place of a label.",
     "When a message has such images or files, call note_references with the task and the labels before you do other work. The call returns at once and needs no answer from the user, so make it also when they are away. The images are their picks: do not open a picker, and follow the steps in the result.",
-    "When the user says that they do not want a reference, or that they did not like what came of it, call note_references with it in rejected.",
+    "",
+    "Keep the context of each reference yourself, with no question to the user:",
+    "- When you build from a reference, call note_references with the task, the project and the reference in used: why the user chose it, which parts of it they like, how the design uses it, and what changed.",
+    "- When the user says that they do not want a reference, or that they did not like what came of it, call note_references with it in rejected, with because disliked or result and the reason.",
+    "- When the work ends and a reference was not used, call note_references with it in rejected, with because unused.",
+    "Search, list, get_reference and contact_sheet show this context with each reference: prefer what the user liked, and leave out what they passed.",
     "",
     "When you design a screen, page or UI for the user and they pasted no such image, start from references they pick for that task:",
     "1. Candidates: call contact_sheet with source history (their earlier picks and passes), then with source vault, and with source cosmos and a query for the task. Choose up to 40 candidates by looking, likely picks first.",
@@ -498,6 +503,11 @@ export function buildVaultInstructions(username: string): string {
 /** `notice`: instructions for a signed-in user with no linked Cosmos account, in place of the usual ones. */
 export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer {
   const server = new McpServer({ name: "cosmos-vault", version: "0.3.0" }, { instructions: notice ?? buildVaultInstructions(ctx.username) });
+  /** Renders references with what the history says about each one. */
+  const contextual = async <R extends Reference>(references: R[], render: (reference: R) => string): Promise<string> => {
+    const used = await historyContext(ctx);
+    return references.map((reference) => render(reference) + used(reference.id)).join("\n\n");
+  };
   const kindSchema = z.enum(["image", "video"]).optional().describe("Return only images or only videos (videos include animated GIFs).");
   const collectionSchema = z
     .string()
@@ -617,7 +627,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
     let text =
       shown.length === 0
         ? `No references at this position in ${scope}.`
-        : `References ${position.o + 1} to ${end} in ${scope}, newest saved first.\n\n${shown.map(vaultText).join("\n\n")}`;
+        : `References ${position.o + 1} to ${end} in ${scope}, newest saved first.\n\n${(await contextual(shown, vaultText))}`;
     text += nextCursor ? `\n\nnextCursor: ${nextCursor}` : "\n\nThis is the last page.";
     if (truncated) text += `\nThe vault is larger: only its newest ${MAX_ELEMENTS} references are available.`;
     if (!token) text += `\n\n${NO_COSMOS}`;
@@ -693,14 +703,14 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
             const all = ((listed.structuredContent as { references?: VaultReference[] } | undefined)?.references ?? []).filter((r) => r.kind === kind);
             const shown = all.slice(0, limit ?? DEFAULT_LIMIT);
             return {
-              content: [{ type: "text", text: `${shown.length} ${kind}s among the newest saves.\n\n${shown.map(vaultText).join("\n\n")}\n\n${NO_COSMOS}` }],
+              content: [{ type: "text", text: `${shown.length} ${kind}s among the newest saves.\n\n${(await contextual(shown, vaultText))}\n\n${NO_COSMOS}` }],
               structuredContent: { returned: shown.length, references: shown },
             };
           }
           const text =
             (ownMatches.length === 0
               ? `No references from other sites match "${term}". Try other words, or call list_references.`
-              : `${ownMatches.length} references for "${term}", best match first. Call get_reference with an id to see one.\n\n${ownMatches.map(compactText).join("\n\n")}`) +
+              : `${ownMatches.length} references for "${term}", best match first. Call get_reference with an id to see one.\n\n${(await contextual(ownMatches, compactText))}`) +
             `${ownRest}\n\n${NO_COSMOS}${describeNote(items)}`;
           return { content: [{ type: "text", text }], structuredContent: { query: term, returned: ownMatches.length, nextCursor: null, references: ownMatches } };
         } catch (error) {
@@ -718,7 +728,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
           let text =
             shown.length === 0
               ? `No ${kind}s among these saves.`
-              : `${shown.length} ${kind}s among the newest saves.\n\n${shown.map(vaultText).join("\n\n")}`;
+              : `${shown.length} ${kind}s among the newest saves.\n\n${(await contextual(shown, vaultText))}`;
           if (structured.nextCursor) text += `\n\nnextCursor: ${structured.nextCursor} (call list_references with it for older saves)`;
           return { content: [{ type: "text", text }], structuredContent: { returned: shown.length, references: shown } };
         }
@@ -747,7 +757,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
         let text =
           found.length === 0
             ? `No references in ${scope} match "${term}". Try other words, or call list_references.`
-            : `${found.length} references in ${scope} for "${term}", best match first${ownMatches.length ? " (the references from other sites come first)" : ""}. Call get_reference with an id to see one.\n\n${found.map(compactText).join("\n\n")}`;
+            : `${found.length} references in ${scope} for "${term}", best match first${ownMatches.length ? " (the references from other sites come first)" : ""}. Call get_reference with an id to see one.\n\n${(await contextual(found, compactText))}`;
         text += ownRest;
         if (result.nextCursor) text += `\n\nnextCursor: ${result.nextCursor}`;
         text += describeNote(items);
@@ -779,7 +789,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
         if (!item) return errorResult(`No reference in the vault has the id ${id}. Call list_references to find ids.`);
         reference = asOwn(item);
         const note = item.description ? "" : "\n\nThis reference has no description. Look at the image, then call describe_references with this id and your description.";
-        const { content, visual } = await referenceContent(reference, fullText(reference) + note);
+        const { content, visual } = await referenceContent(reference, fullText(reference) + (await historyContext(ctx))(id) + note);
         return { content, structuredContent: { ...reference, visual } };
       }
       try {
@@ -802,7 +812,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
           return failure(tokenError, `read the Cosmos element ${id}`);
         }
       }
-      const { content, visual } = await referenceContent(reference, fullText(reference));
+      const { content, visual } = await referenceContent(reference, fullText(reference) + (await historyContext(ctx))(id));
       return { content, structuredContent: { ...reference, visual } };
     },
   );
@@ -834,7 +844,7 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
         let text =
           result.references.length === 0
             ? `Nothing on Cosmos matches "${term}".`
-            : `${result.references.length} Cosmos elements for "${term}", best match first. Call get_reference with an id to see one.\n\n${result.references.map(compactText).join("\n\n")}`;
+            : `${result.references.length} Cosmos elements for "${term}", best match first. Call get_reference with an id to see one.\n\n${(await contextual(result.references, compactText))}`;
         if (result.nextCursor) text += `\n\nnextCursor: ${result.nextCursor}`;
         return {
           content: [{ type: "text", text }],

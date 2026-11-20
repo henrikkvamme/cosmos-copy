@@ -90,6 +90,44 @@ export interface Board {
 export interface HistoryItem {
   id: string;
   thumb: string;
+  /** What the agent recorded when it used the reference. It stays when the reference moves to passed. */
+  use?: ReferenceUse;
+  /** Why the reference is passed. Only on passed items that an agent or a result moved there. */
+  pass?: PassNote;
+}
+
+/** How an agent used a reference in the task, in its own words. */
+export interface ReferenceUse {
+  at: string;
+  /** Why the user chose it as a reference. */
+  why: string;
+  /** The parts of it the user likes. */
+  liked: string;
+  /** How the design used it. */
+  how: string;
+  /** What changed in the design because of it, or what the user changed later. */
+  changed?: string;
+}
+
+/** disliked: the user does not want the reference. result: the user did not like what came of it. unused: the design did not use it in the end. */
+export const PASS_KINDS = ["disliked", "result", "unused"] as const;
+export type PassKind = (typeof PASS_KINDS)[number];
+
+export interface PassNote {
+  at: string;
+  because: PassKind;
+  reason?: string;
+}
+
+/** What an agent reports about one task outside a pick session. */
+export interface ReferenceNotes {
+  /** Pasted references: picks without a note. */
+  pasted: HistoryItem[];
+  /** Used references: picks with a note. */
+  used: (HistoryItem & { use: ReferenceUse })[];
+  /** Passed references with the reason. */
+  passed: (HistoryItem & { pass: PassNote })[];
+  project?: string;
 }
 
 /**
@@ -470,31 +508,46 @@ export class PickStore {
   }
 
   /**
-   * Records what an agent reports outside a pick session: references the user pasted (picks) and
-   * references they reject (passed). It changes the newest entry of the task (by name, case does
-   * not matter) when that entry is younger than a week, else it adds an entry. A rejected
-   * reference moves from picked to passed.
+   * Records what an agent reports outside a pick session: references the user pasted (picks),
+   * references the agent used with its note (picks), and references that are passed with the
+   * reason. It changes the newest entry of the task (by name, case does not matter) when that
+   * entry is younger than a week, else it adds an entry. A passed reference moves from picked to
+   * passed and keeps its use note. A later paste or use moves it back.
    */
-  async noteReferences(owner: string, task: string, pasted: HistoryItem[], rejected: HistoryItem[]): Promise<{ picked: number; passed: number }> {
+  async noteReferences(owner: string, task: string, notes: ReferenceNotes): Promise<{ picked: number; passed: number }> {
     const file = await this.historyOf(owner);
     const wanted = task.trim().toLowerCase();
     const cutoff = Date.now() - NOTE_MERGE_MS;
-    let entry = file.entries.find((e) => e.task.trim().toLowerCase() === wanted && Date.parse(e.at) >= cutoff);
+    // Two projects with the same task name keep their own entries.
+    const project = notes.project?.trim();
+    const sameProject = (e: HistoryEntry) => !project || !e.project || e.project.toLowerCase() === project.toLowerCase();
+    let entry = file.entries.find((e) => e.task.trim().toLowerCase() === wanted && Date.parse(e.at) >= cutoff && sameProject(e));
     if (!entry) {
       entry = { task: task.trim(), at: new Date().toISOString(), picked: [], passed: [] };
       file.entries.unshift(entry);
       if (file.entries.length > MAX_HISTORY_TASKS) file.entries.length = MAX_HISTORY_TASKS;
     }
-    const rejectedIds = new Set(rejected.map((item) => item.id));
-    for (const item of pasted) {
-      if (rejectedIds.has(item.id)) continue;
-      if (!entry.picked.some((p) => p.id === item.id)) entry.picked.push(item);
+    if (project && !entry.project) entry.project = project;
+    const passedIds = new Set(notes.passed.map((item) => item.id));
+    for (const item of [...notes.pasted, ...notes.used]) {
+      if (passedIds.has(item.id)) continue;
+      const before = entry.picked.find((p) => p.id === item.id) ?? entry.passed.find((p) => p.id === item.id);
+      const use = "use" in item && item.use ? item.use : before?.use;
+      const picked: HistoryItem = { id: item.id, thumb: item.thumb, ...(use ? { use } : {}) };
+      const index = entry.picked.findIndex((p) => p.id === item.id);
+      if (index >= 0) entry.picked[index] = picked;
+      else entry.picked.push(picked);
       entry.passed = entry.passed.filter((p) => p.id !== item.id);
     }
+    const moved: HistoryItem[] = notes.passed.map((item) => {
+      const before = entry.picked.find((p) => p.id === item.id) ?? entry.passed.find((p) => p.id === item.id);
+      const use = item.use ?? before?.use;
+      return { id: item.id, thumb: item.thumb, ...(use ? { use } : {}), pass: item.pass };
+    });
     // At the limit the oldest picks go, so a new paste is always stored.
-    entry.picked = entry.picked.filter((p) => !rejectedIds.has(p.id)).slice(-MAX_PICKED_PER_TASK);
-    // Rejected references go first, so the history sheet shows them before the other passes.
-    entry.passed = [...rejected, ...entry.passed.filter((p) => !rejectedIds.has(p.id))].slice(0, MAX_PASSED_PER_TASK);
+    entry.picked = entry.picked.filter((p) => !passedIds.has(p.id)).slice(-MAX_PICKED_PER_TASK);
+    // Passed references with a reason go first, so the history sheet shows them before the other passes.
+    entry.passed = [...moved, ...entry.passed.filter((p) => !passedIds.has(p.id))].slice(0, MAX_PASSED_PER_TASK);
     await this.saveHistory(owner);
     return { picked: entry.picked.length, passed: entry.passed.length };
   }
@@ -524,13 +577,15 @@ export class PickStore {
    * the task without a record and younger than a week, or a new entry. A record of another
    * canvas is never replaced, so two projects with the same task name keep their own records.
    */
-  async noteResult(owner: string, task: string, project: string, result: HistoryResult): Promise<{ replaced: boolean }> {
+  async noteResult(owner: string, task: string, project: string, result: HistoryResult): Promise<{ replaced: boolean; unused: string[] }> {
     const file = await this.historyOf(owner);
     const wanted = task.trim().toLowerCase();
     const cutoff = Date.now() - NOTE_MERGE_MS;
     let entry = file.entries.find((e) => e.result?.board === result.board);
     const replaced = entry !== undefined;
-    entry ??= file.entries.find((e) => !e.result && e.task.trim().toLowerCase() === wanted && Date.parse(e.at) >= cutoff);
+    entry ??= file.entries.find(
+      (e) => !e.result && e.task.trim().toLowerCase() === wanted && Date.parse(e.at) >= cutoff && (!e.project || e.project.toLowerCase() === project.toLowerCase()),
+    );
     if (!entry) {
       entry = { task: task.trim(), at: new Date().toISOString(), picked: result.took.map(({ id, thumb }) => ({ id, thumb })), passed: [] };
       file.entries.unshift(entry);
@@ -538,8 +593,27 @@ export class PickStore {
     }
     entry.project = project;
     entry.result = result;
+    // The design is done: a pick that it does not take from was not used in the end. A use note stays.
+    const took = new Set(result.took.map((take) => take.id));
+    const unused = entry.picked.filter((p) => !took.has(p.id));
+    entry.picked = entry.picked.filter((p) => took.has(p.id));
+    for (const take of result.took) {
+      const item = entry.picked.find((p) => p.id === take.id) ?? entry.passed.find((p) => p.id === take.id);
+      if (!item) entry.picked.push({ id: take.id, thumb: take.thumb });
+      else if (!entry.picked.includes(item)) {
+        // A reference in the accepted design is a pick, also when it was passed before.
+        entry.passed = entry.passed.filter((p) => p !== item);
+        delete item.pass;
+        entry.picked.push(item);
+      }
+    }
+    const at = result.at;
+    entry.passed = [
+      ...unused.map((p) => ({ ...p, pass: { at, because: "unused" as const, reason: "Not in the accepted design." } })),
+      ...entry.passed,
+    ].slice(0, MAX_PASSED_PER_TASK);
     await this.saveHistory(owner);
-    return { replaced };
+    return { replaced, unused: unused.map((p) => p.id) };
   }
 
   /**

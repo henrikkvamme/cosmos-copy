@@ -630,6 +630,7 @@ try {
     const entriesBefore = JSON.parse(await readFile(historyPath, "utf8")).entries.length;
     const recorded = await call(vault, "note_result", { canvas: canvasLink, variant: 1, project: "zug-web", deviations: "Less dense than the reference.", took: [{ id: first, what: "layout and colours" }] });
     check("note_result: records the accepted variant", !recorded.isError && recorded.structuredContent?.replaced === false && recorded.structuredContent?.project === "zug-web", textOf(recorded));
+    check("note_result: the pick that the design does not take from is passed as not used", recorded.structuredContent?.unused?.length === 1 && !recorded.structuredContent.unused.includes(first), recorded.structuredContent);
     let records = JSON.parse(await readFile(historyPath, "utf8")).entries;
     const withResult = () => records.filter((e) => e.result);
     check(
@@ -721,6 +722,50 @@ try {
     );
     const notedSheet = await call(vault, "contact_sheet", { source: "history" });
     check("note_references: the history sheet shows the task", !notedSheet.isError && textOf(notedSheet).includes('Task "Paste task"') && images(notedSheet).length === 1, textOf(notedSheet).slice(0, 300));
+    // The agent records the context of each reference, and later calls read it back.
+    const withContext = await call(vault, "note_references", {
+      task: "Paste task",
+      project: "zug-web",
+      used: [{ id: REAL_ELEMENT, why: "Pasted for its dense table", liked: "the muted colours", how: "layout of the home screen", changed: "The sidebar is smaller" }],
+      rejected: [{ id: first, because: "result", reason: "Too busy in the result" }],
+    });
+    check(
+      "note_references: used and rejected with context are recorded",
+      !withContext.isError && JSON.stringify(withContext.structuredContent?.used) === JSON.stringify([REAL_ELEMENT]) && JSON.stringify(withContext.structuredContent?.passed) === JSON.stringify([first]),
+      textOf(withContext),
+    );
+    const contextEntry = JSON.parse(await readFile(join(dataDir, "history", `${HENRIK_ID}.json`), "utf8")).entries[0];
+    check(
+      "note_references: the notes and the project are on the entry",
+      contextEntry.project === "zug-web" && contextEntry.picked[0].use?.liked === "the muted colours" && contextEntry.picked[0].use?.changed === "The sidebar is smaller" &&
+        contextEntry.passed[0].id === first && contextEntry.passed[0].pass?.because === "result" && contextEntry.passed[0].pass?.reason === "Too busy in the result",
+      contextEntry,
+    );
+    const contextSheet = await call(vault, "contact_sheet", { source: "history" });
+    check("contact_sheet history: shows why, what was liked and why a reference was passed", textOf(contextSheet).includes("liked: the muted colours") && textOf(contextSheet).includes("did not like what came of it"), textOf(contextSheet).slice(0, 800));
+    const contextRef = await call(vault, "get_reference", { id: REAL_ELEMENT });
+    check("get_reference: shows the context from the history", textOf(contextRef).includes('used in "Paste task", project zug-web') && textOf(contextRef).includes("liked: the muted colours"), textOf(contextRef).slice(0, 800));
+    const otherProject2 = await call(vault, "note_references", { task: "paste task", project: "Other App", used: [{ id: first, why: "Calm", liked: "the type", how: "header" }], rejected: [{ id: REAL_ELEMENT, because: "result" }] });
+    const projectEntries = JSON.parse(await readFile(join(dataDir, "history", `${HENRIK_ID}.json`), "utf8")).entries.filter((e) => e.task.toLowerCase() === "paste task");
+    const otherEntry = projectEntries.find((e) => e.project === "Other App");
+    check(
+      "note_references: another project with the same task name gets its own entry, and used plus rejected keeps the use note",
+      !otherProject2.isError && projectEntries.length === 2 && projectEntries.some((e) => e.project === "zug-web" && e.picked[0]?.use?.liked === "the muted colours") &&
+        otherEntry?.picked[0]?.use?.liked === "the type" && otherEntry?.passed[0]?.id === REAL_ELEMENT,
+      projectEntries,
+    );
+    const bothOne = await call(vault, "note_references", { task: "paste task", project: "Other App", used: [{ id: first, why: "Calm", liked: "the spacing", how: "cards" }], rejected: [{ id: first, because: "result" }] });
+    const bothEntry = JSON.parse(await readFile(join(dataDir, "history", `${HENRIK_ID}.json`), "utf8")).entries.find((e) => e.project === "Other App");
+    check("note_references: used and rejected for one reference keeps the new use note on the pass", !bothOne.isError && bothEntry?.passed[0]?.id === first && bothEntry.passed[0].use?.liked === "the spacing" && bothEntry.passed[0].pass?.because === "result", bothEntry);
+    const missingFields = await call(vault, "note_references", { task: "Paste task", used: [{ id: REAL_ELEMENT, why: "No more fields" }] });
+    check("note_references: used needs why, liked and how", missingFields.isError === true, textOf(missingFields));
+    const unusedOne = await call(vault, "note_references", { task: "Paste task", project: "zug-web", rejected: { id: REAL_ELEMENT, because: "unused" } });
+    const unusedEntry = JSON.parse(await readFile(join(dataDir, "history", `${HENRIK_ID}.json`), "utf8")).entries.find((e) => e.project === "zug-web");
+    check(
+      "note_references: a reference not used in the end is passed and keeps its use note",
+      !unusedOne.isError && unusedEntry.picked.length === 0 && unusedEntry.passed[0].id === REAL_ELEMENT && unusedEntry.passed[0].pass?.because === "unused" && unusedEntry.passed[0].use?.how === "layout of the home screen",
+      unusedEntry,
+    );
     // A video has no strip: the name of the copied file holds the id.
     const byName = await call(vault, "note_references", { task: "Video task", pasted: [`cosmos-${first}.mp4`, `/Users/h/Downloads/Cosmos References/cosmos-${REAL_ELEMENT}.png`] });
     check("note_references: a file name of a copied reference is a pick", !byName.isError && JSON.stringify(byName.structuredContent?.picked) === JSON.stringify([first, REAL_ELEMENT]), textOf(byName));
@@ -814,15 +859,15 @@ try {
     check("history: two Done at the same time keep both tasks", onDisk.entries.length === 2, onDisk.entries.map((e) => e.task));
     // A paste at the limit of picks per task: the new one is stored, the oldest goes.
     const item = (n) => ({ id: String(n), thumb: "https://cdn.cosmos.so/x" });
-    for (let n = 0; n < 100; n += 20) await store.noteReferences("racer", "full task", Array.from({ length: 20 }, (_, k) => item(1000 + n + k)), []);
-    await store.noteReferences("racer", "Full Task", [item(2000)], [item(1001)]);
+    for (let n = 0; n < 100; n += 20) await store.noteReferences("racer", "full task", { pasted: Array.from({ length: 20 }, (_, k) => item(1000 + n + k)), used: [], passed: [] });
+    await store.noteReferences("racer", "Full Task", { pasted: [item(2000)], used: [], passed: [{ ...item(1001), pass: { at: new Date().toISOString(), because: "disliked" } }] });
     const full = (await store.history("racer")).find((e) => e.task === "full task");
     check(
       "note: at 100 picks a new paste is stored, and a rejected pick moves to passed",
       full?.picked.length === 100 && full.picked.at(-1).id === "2000" && !full.picked.some((p) => p.id === "1001") && full.passed[0]?.id === "1001",
       full && { picked: full.picked.length, last: full.picked.at(-1), passed: full.passed },
     );
-    await store.noteReferences("racer", "full task", [item(2001), item(2002)], []);
+    await store.noteReferences("racer", "full task", { pasted: [item(2001), item(2002)], used: [], passed: [] });
     const over = (await store.history("racer")).find((e) => e.task === "full task");
     check("note: over the limit the oldest picks go", over?.picked.length === 100 && over.picked[0].id === "1003" && over.picked.at(-1).id === "2002", over && { first: over.picked[0], n: over.picked.length });
     await rm(dir, { recursive: true, force: true });

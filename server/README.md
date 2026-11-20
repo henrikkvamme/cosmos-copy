@@ -82,17 +82,26 @@ Vault, design flow (the server instructions give the agent the order):
   steps. The agent never asks Henrik to say that he is done.
 - `show_variants { task, variants: [{ name, takes: [{ id, what? }] }] }`: 1 to 6 variants. Returns
   the canvas link and one upload command per variant.
-- `note_result { canvas, variant, project, deviations, took? }`: for the design Henrik accepts. It
-  keeps a style record with the task in the pick history: the project, the references of the
+- `note_result { canvas, variant, project, deviations, took? }`: records the design Henrik accepts.
+  It saves a style record with the task in the pick history: the project, the references of the
   variant with what the design took from each, the deviations, and the top of the final screenshot
-  (1280 px wide, at most 2000 px high). A record of the same canvas is replaced; a record of another
-  canvas is not. `contact_sheet { source: "history", project }` gives the records of one project.
-- `note_references { task, pasted?, rejected? }`: for references Henrik pasted into the chat. `pasted`
-  holds the labels on the strips of the copied images, such as `1850854004-65` (id and two check
-  digits, mod 97). They become the picks of the task in the pick history, and the result gives the
-  same next steps as `wait_for_picks`. `rejected` holds labels or ids: they move to passed. A label
-  with wrong check digits records nothing, and the agent reads the strip again. A call changes the
-  newest history entry of the same task when it is younger than 7 days, else it adds an entry.
+  (1280 px wide, at most 2000 px high). Task picks that the accepted variant does not take from
+  move to passed, marked not used. A reference that the variant takes from becomes a pick again. A
+  call for the same canvas replaces its record, and leaves records of other canvases unchanged.
+  `contact_sheet { source: "history", project }` gives the records of one project.
+- `note_references { task, project?, pasted?, used?, rejected? }`: records references for a task.
+  The agent calls it on its own, without asking Henrik. `pasted` holds the labels on the strips of
+  images Henrik pasted into the chat, such as `1850854004-65` (id and two check digits, mod 97).
+  They become the picks of the task in the pick history, and the result gives the same next steps
+  as `wait_for_picks`. A label with wrong check digits records nothing, and the agent reads the
+  strip again. `used` holds `[{ id, why, liked, how, changed? }]`: why Henrik chose the reference,
+  which parts he likes, how the design uses it, and what changed. `rejected` moves references to
+  passed. Each item is a label, a file name, an id, or `{ id, because, reason? }`. `because` is
+  `disliked` (he does not want it), `result` (he did not like what came of it), or `unused` (not
+  used in the end). A plain value counts as `disliked`. A passed reference keeps its use note.
+  `contact_sheet` history, `search_references`, `list_references`, and `get_reference` show this
+  context with each reference, so the next design task reads it. A call updates the newest history
+  entry of the same task when it is younger than 7 days; otherwise it adds a new entry.
 - `clear_pick_history { task? }`: deletes the pick history of one task, or all of it.
 - `describe_references` with `{ references: [{ id, description, tags? }] }`: store a description and optional tags for references from other sites that have no description. The agent inspects the references first. The server calls no AI model. `search_references` matches words in the description, tags, page title, site, and alt text.
 - 
