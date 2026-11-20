@@ -63,7 +63,7 @@
     // A very tall or very wide picture is cut, so that no tile is a sliver.
     if (item.width && item.height) node.style.setProperty("--ratio", String(Math.min(Math.max(item.width / item.height, 0.62), 2.2)));
     remove.addEventListener("click", async () => {
-      if (remove.disabled || !confirm("Delete this reference from the vault?")) return;
+      if (remove.disabled || !confirm("Delete this reference permanently?")) return;
       remove.disabled = true;
       const res = await fetch("/account/api/vault/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id }) }).catch(() => null);
       if (res && (res.ok || res.status === 404)) {
@@ -74,14 +74,14 @@
       } else {
         remove.disabled = false;
         node.classList.add("failed");
-        remove.title = "Could not delete. Try again.";
+        remove.title = "Could not delete reference";
       }
     });
     return node;
   }
 
   function empty() {
-    say("Nothing saved yet", "Hover an image or video on any site and press ⌥⇧C. TasteRef copies it and saves it here.");
+    say("No references yet", "Hover an image or video on any site and press ⌥⇧C. TasteRef copies it and saves it here.");
   }
 
   function skeletons(n) {
@@ -110,18 +110,18 @@
     if (!res?.ok || !data) {
       const retry = el("button", { class: "btn", type: "button" }, "Retry");
       retry.addEventListener("click", load);
-      if (first) say("Could not load the vault", "Check the connection and try again.", retry);
+      if (first) say("Could not load references", "Reload the page to try again.", retry);
       else more.replaceChildren(retry);
       return;
     }
-    if (!data.linked) return say("No browser is linked", "Open the TasteRef extension in your browser and click Connect account. Your copies from other sites then show here.");
+    if (!data.linked) return say("No browser connected", 'Open the TasteRef extension and click "Connect account".');
     count = data.total;
     next = data.next;
     showTotal();
     grid.append(...data.items.map(tile));
     if (first && !data.items.length) return empty();
     if (next) {
-      const button = el("button", { class: "btn", type: "button" }, "Show more");
+      const button = el("button", { class: "btn", type: "button" }, "Load more");
       button.addEventListener("click", load);
       more.replaceChildren(button);
     }

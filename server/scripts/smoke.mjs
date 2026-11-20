@@ -296,6 +296,7 @@ try {
         JSON.stringify([
           "clear_pick_history",
           "contact_sheet",
+          "describe_references",
           "get_reference",
           "list_collections",
           "list_references",
@@ -714,7 +715,8 @@ try {
     const stored = await readStoreWhen((data) => !data.accounts[HENRIK_ID]?.token);
     check("refused token: deleted from links.json, devices kept", !stored.accounts[HENRIK_ID].token && stored.accounts[HENRIK_ID].devices.length === 2, stored.accounts[HENRIK_ID]);
     const again = await call(vault, "search_references", { query: "motion" });
-    check("missing token: tool error with the renew hint", again.isError === true && textOf(again).includes("Visit cosmos.so in Brave to renew the link."), textOf(again));
+    // The references from other sites need no Cosmos token, so the search still answers.
+    check("missing token: the result has the renew hint", textOf(again).includes("Visit cosmos.so in Brave to renew the link."), textOf(again));
     const cosmos = await call(vault, "search_cosmos", { query: "red poster", limit: 2 });
     check("missing token: search_cosmos still works", !cosmos.isError && idsOf(cosmos).length === 2, textOf(cosmos).slice(0, 200));
     const relinked = await link(secret(makeToken("henrikkvamme", 5 * 86400, 4)), keyB, "Chrome on fry");
@@ -733,7 +735,7 @@ try {
     await startServer();
     const client = await mcp(vaultPath("henrikkvamme", keyA));
     const result = await call(client, "list_references");
-    check("expired token: tool error with the renew hint", result.isError === true && textOf(result).includes("Visit cosmos.so in Brave to renew the link."), textOf(result));
+    check("expired token: the result has the renew hint", textOf(result).includes("Visit cosmos.so in Brave to renew the link."), textOf(result));
     await client.close();
     const after = await readStoreWhen((data) => !data.accounts[HENRIK_ID]?.token);
     check("expired token: deleted on read, devices kept", !after.accounts[HENRIK_ID].token && after.accounts[HENRIK_ID].devices.length === 2, after.accounts[HENRIK_ID]);

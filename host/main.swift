@@ -4,8 +4,10 @@
 // on the clipboard as PNG data, so apps that only take image data (such as
 // Claude Code with ctrl+v) can paste them. An image from Cosmos gets a thin
 // strip with its id at the bottom, so an agent that gets the paste knows which
-// reference it is. The reference library itself lives in a Cosmos collection,
-// so this helper keeps no state.
+// reference it is. A copy from another site can also go to the user's vault on
+// the TasteRef server: the helper sends the file as it was downloaded, with no
+// strip. The reference library lives in Cosmos and on that server, so this
+// helper keeps no state.
 
 import AppKit
 import CryptoKit
@@ -89,13 +91,17 @@ func pngData(from data: Data) -> Data? {
 /// `cosmos-<id>`, which the extension gives to every Cosmos element. The label ends with the name
 /// of the MCP tool, because the image is the only instruction that reaches every agent: some
 /// clients do not pass on the server instructions.
+///
+/// A reference from another site has the file name `tasteref-t<15 digits>` and the label
+/// `tasteref t<15 digits>-NN`, with the same check digits over its digits.
 func idLabel(forName name: String) -> String? {
-    guard name.hasPrefix("cosmos-") else { return nil }
-    let digits = name.dropFirst("cosmos-".count)
-    guard !digits.isEmpty, digits.count <= 19, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
-          let id = UInt64(digits) else { return nil }
+    let own = name.hasPrefix("tasteref-t")
+    guard own || name.hasPrefix("cosmos-") else { return nil }
+    let digits = name.dropFirst(own ? "tasteref-t".count : "cosmos-".count)
+    guard !digits.isEmpty, own ? digits.count == 15 : digits.count <= 19,
+          digits.allSatisfy({ $0.isASCII && $0.isNumber }), let id = UInt64(digits) else { return nil }
     let check = 98 - (id % 97) * 100 % 97
-    return "cosmos \(digits)-" + String(format: "%02d", check) + " · call note_references"
+    return (own ? "tasteref t" : "cosmos ") + "\(digits)-" + String(format: "%02d", check) + " · call note_references"
 }
 
 /// Adds a dark strip with the label under the image. The image itself is not covered. An image
@@ -160,10 +166,12 @@ func putOnClipboard(file: URL, png: Data?, appendTo changeCount: Int?) throws ->
     return (pasteboard.changeCount, items.count)
 }
 
-/// Downloads media, saves it and puts it on the clipboard. Returns the file and its size.
-func fetchAndCopy(url: URL, kind: String, name: String, appendTo: Int?) throws -> (URL, Int, Int, Int) {
+/// Downloads media, saves it and puts it on the clipboard. Returns the file, its size and the
+/// bytes as they were downloaded (before the PNG conversion and the strip).
+func fetchAndCopy(url: URL, kind: String, name: String, appendTo: Int?) throws -> (URL, Int, Int, Int, Data) {
     try FileManager.default.createDirectory(at: mediaDir, withIntermediateDirectories: true)
     var (data, mime) = try download(url)
+    let original = data
     var ext = fileExtension(mime: mime, url: url)
     var png: Data?
     if kind == "image" {
@@ -187,7 +195,60 @@ func fetchAndCopy(url: URL, kind: String, name: String, appendTo: Int?) throws -
         throw HostError(message: "Could not save the file: \(error.localizedDescription)")
     }
     let (changeCount, count) = try putOnClipboard(file: file, png: png, appendTo: appendTo)
-    return (file, data.count, changeCount, count)
+    return (file, data.count, changeCount, count, original)
+}
+
+// MARK: - Vault upload
+
+/// Where a copy from another site is saved: the TasteRef server and this browser's device key.
+struct Upload {
+    let endpoint: URL
+    let username: String
+    let key: String
+    let meta: [String: Any]
+}
+
+let uploadLimits = ["image": 25 * 1024 * 1024, "video": 50 * 1024 * 1024]
+
+func parseUpload(_ raw: Any?) -> Upload? {
+    guard let value = raw as? [String: Any], let server = value["server"] as? String,
+          let endpoint = URL(string: server + "/vault/upload"), let host = endpoint.host,
+          // The key goes to this address, so it must be HTTPS (or this Mac, for tests).
+          endpoint.scheme == "https" || (endpoint.scheme == "http" && ["127.0.0.1", "localhost"].contains(host)),
+          let username = value["username"] as? String, let key = value["key"] as? String,
+          let meta = value["meta"] as? [String: Any] else { return nil }
+    return Upload(endpoint: endpoint, username: username, key: key, meta: meta)
+}
+
+/// Sends the file to the vault. Returns the message for the extension: `saved` true or an error.
+func send(_ upload: Upload, data: Data, kind: String) -> [String: Any] {
+    func failed(_ text: String) -> [String: Any] { ["type": "saved", "ok": false, "error": text] }
+    let limit = uploadLimits[kind] ?? 0
+    guard data.count <= limit else { return failed("File is over \(limit / 1024 / 1024) MB") }
+    guard let metaJSON = try? JSONSerialization.data(withJSONObject: upload.meta) else { return failed("Bad details.") }
+    let meta = metaJSON.base64EncodedString()
+        .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    var request = URLRequest(url: upload.endpoint, timeoutInterval: 120)
+    request.httpMethod = "POST"
+    request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+    request.setValue(upload.username, forHTTPHeaderField: "x-username")
+    request.setValue(upload.key, forHTTPHeaderField: "x-device-key")
+    request.setValue(meta, forHTTPHeaderField: "x-meta")
+    let done = DispatchSemaphore(value: 0)
+    var result: (Data?, URLResponse?, Error?)
+    URLSession.shared.uploadTask(with: request, from: data) { body, response, error in
+        result = (body, response, error)
+        done.signal()
+    }.resume()
+    done.wait()
+    guard let http = result.1 as? HTTPURLResponse else {
+        return failed(result.2?.localizedDescription ?? "Server did not answer")
+    }
+    let body = result.0.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+    guard (200..<300).contains(http.statusCode) else {
+        return failed(body?["error"] as? String ?? "HTTP \(http.statusCode)")
+    }
+    return ["type": "saved", "ok": true, "existed": body?["existed"] as? Bool ?? false]
 }
 
 // MARK: - Main
@@ -232,14 +293,16 @@ func setClipboard(paths: [String], expect changeCount: Int) throws -> Int {
     return pasteboard.changeCount
 }
 
-func handle(_ msg: [String: Any]) throws -> [String: Any] {
+/// Returns the answer and, for a copy that is also saved to the vault, the step that sends it.
+/// The answer goes out first, so the clipboard does not wait for the upload.
+func handle(_ msg: [String: Any]) throws -> ([String: Any], (() -> [String: Any])?) {
     switch msg["type"] as? String {
     case "status":
-        return ["ok": true, "changeCount": NSPasteboard.general.changeCount]
+        return (["ok": true, "changeCount": NSPasteboard.general.changeCount], nil)
     case "set":
         let paths = msg["paths"] as? [String] ?? []
         guard let expect = (msg["expect"] as? NSNumber)?.intValue else { throw HostError(message: "Missing expect") }
-        return ["ok": true, "changeCount": try setClipboard(paths: paths, expect: expect), "count": paths.count]
+        return (["ok": true, "changeCount": try setClipboard(paths: paths, expect: expect), "count": paths.count], nil)
     default:
         break
     }
@@ -251,13 +314,18 @@ func handle(_ msg: [String: Any]) throws -> [String: Any] {
     let name = msg["name"] as? String
         ?? "web-" + SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined().prefix(16)
     let appendTo = (msg["appendTo"] as? NSNumber)?.intValue
-    let (file, bytes, changeCount, count) = try fetchAndCopy(url: url, kind: kind, name: name, appendTo: appendTo)
-    return ["ok": true, "path": file.path, "bytes": bytes, "kind": kind, "changeCount": changeCount, "count": count]
+    let upload = parseUpload(msg["upload"])
+    guard upload != nil || msg["upload"] == nil else { throw HostError(message: "Bad upload details") }
+    let (file, bytes, changeCount, count, original) = try fetchAndCopy(url: url, kind: kind, name: name, appendTo: appendTo)
+    let answer: [String: Any] = ["ok": true, "path": file.path, "bytes": bytes, "kind": kind, "changeCount": changeCount, "count": count]
+    return (answer, upload.map { upload in { send(upload, data: original, kind: kind) } })
 }
 
 guard let msg = readMessage() else { exit(0) }
 do {
-    writeMessage(try handle(msg))
+    let (answer, later) = try handle(msg)
+    writeMessage(answer)
+    if let later { writeMessage(later()) }
 } catch let error as HostError {
     writeMessage(["ok": false, "error": error.message])
 } catch {

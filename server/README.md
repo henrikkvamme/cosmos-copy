@@ -35,6 +35,12 @@ A remote, stateless MCP server (Streamable HTTP) for Cosmos (cosmos.so). It has 
 - `PUT /u/<upload id>/<n>`: upload the screenshot of variant n (PNG, JPEG or WebP, at most 15 MB),
   such as `curl -sS --fail -T shot.png <url>`. The upload id is a second secret, so the canvas link
   cannot upload. A new upload replaces the old one.
+- `POST /vault/upload` with raw file body and headers `x-device-key`, `x-username`, `x-meta` (base64url JSON `{id, kind, pageUrl, pageTitle, alt, sourceUrl}`): upload one copied file from the extension helper. Gives `{ok, id, existed}`. Accepts JPEG, PNG, WebP, GIF, and AVIF images up to 25 MB, and MP4, WebM, and MOV videos up to 50 MB. Limits each account to 5000 references and 5 GB. Returns `400`, `401`, `409` (id in use), `413`, `415`, `429`, `503` (busy), or `507` (vault full).
+- `GET /vault/f/<owner>/<fileKey>`: return the stored file. The `<fileKey>` in the URL acts as the secret. Supports one byte range.
+- `GET /vault/t/<owner>/<fileKey>.jpg`: return the still image for the file. Pass `?w=` up to `640` for a smaller width.
+- `GET /vault`: show the saved references page for the signed-in user.
+- `GET /account/api/vault?after=<id>`: list saved references for the signed-in user in pages of 60.
+- `POST /account/api/vault/delete` with `{id}`: delete one saved reference.
 - `GET /assets/<file>`: the page scripts and the style sheet.
 - `GET /health`: `ok`.
 - `GET /`: usage text.
@@ -87,6 +93,8 @@ Vault, design flow (the server instructions give the agent the order):
   with wrong check digits records nothing, and the agent reads the strip again. A call changes the
   newest history entry of the same task when it is younger than 7 days, else it adds an entry.
 - `clear_pick_history { task? }`: deletes the pick history of one task, or all of it.
+- `describe_references` with `{ references: [{ id, description, tags? }] }`: store a description and optional tags for references from other sites that have no description. The agent inspects the references first. The server calls no AI model. `search_references` matches words in the description, tags, page title, site, and alt text.
+- 
 
 When the token is missing, expired or refused, a vault tool that needs it gives the error
 "Visit cosmos.so in Brave to renew the link."
@@ -195,6 +203,8 @@ A person signs in with Google (Better Auth). An MCP client gets access with OAut
 `DATA_DIR/links.json` holds the linked accounts. The server writes it to a temporary file with mode
 600 and renames it, so a crash never leaves half a file. A file that cannot be read is moved aside
 as `links.json.broken-<time>`.
+
+`DATA_DIR/vault/<Cosmos user id>/` stores `index.json` (mode `600`), the uploaded files, and their still images. `ffmpeg` creates the still image for each video. Set `FFMPEG_PATH` to choose the binary (the Docker image installs `ffmpeg`). Deleting an account removes its directory. `UPLOAD_RATE_LIMIT` sets the maximum saves per account per hour (default `300`).
 
 The design flow keeps its data in the same directory, written the same way:
 

@@ -153,7 +153,9 @@ function showCurrent(current) {
 
 async function loadAgents() {
   try {
-    const { url, keyUrl, link, connected } = await ask({ type: "popup:agents" });
+    const { url, vaultUrl, keyUrl, link, connected } = await ask({ type: "popup:agents" });
+    $("open-vault").href = vaultUrl;
+    $("open-vault").hidden = !link?.ok;
     const disconnected = link?.reason === "disconnected";
     const pending = link?.reason === "unlink-pending";
     $("renew").hidden = !(link?.reason === "signed-out");
@@ -251,6 +253,8 @@ async function loadSettings() {
   const prefs = await settings();
   $("like").checked = prefs.likeOnCopy;
   $("like").onchange = () => saveSettings({ likeOnCopy: $("like").checked });
+  $("save-other").checked = prefs.saveOtherSites;
+  $("save-other").onchange = () => saveSettings({ saveOtherSites: $("save-other").checked });
   loadAgents();
   try {
     const { collections, current } = await ask({ type: "popup:collections" });

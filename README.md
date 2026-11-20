@@ -38,6 +38,16 @@ Saved-reference search works through a linked Cosmos account today.
 - Click the extension icon to see what is on the clipboard. Click a thumbnail to open it on Cosmos, or the x to take it off the clipboard.
 - The gear opens settings: the collection that copies go to ("New collection…" creates one), the like setting, the shortcut and the agent setup.
 
+## Your vault
+
+When your browser is connected, TasteRef saves every copy from sites other than Cosmos to your vault. You can switch this off in the extension popup. TasteRef never saves copies from private windows.
+
+Each copied image gets a thin strip with an ID so your agent knows which reference it is. Your agent writes the descriptions that search uses with your own subscription. The server calls no AI model.
+
+Limits are 25 MB per image (JPEG, PNG, WebP, GIF, AVIF), 50 MB per video (MP4, WebM, MOV), 5000 references, and 5 GB in total. View and delete references at https://tasteref.henrikkvamme.no/vault. Deleting your account deletes your vault.
+
+When you save a reference to your vault, TasteRef stores the file, the page address and title, the image alt text, and the time of the copy. Only you and the agents you connect can read your vault. Each file link uses a secret address. You can delete any reference at https://tasteref.henrikkvamme.no/vault. Deleting your account deletes your vault.
+
 ## Connect agents
 
 Open the extension and click the gear.

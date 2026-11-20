@@ -210,6 +210,7 @@
         el("li", {}, "Your Google name, email address and picture link, to sign you in."),
         el("li", {}, "Your Cosmos login token, when you link Cosmos from the extension. With it the server reads your saved references and saves to your collections for the apps you allow. It expires after at most 7 days and the extension renews it."),
         el("li", {}, "Your pick history: which references you picked, passed and pasted per task, and the style records of your projects with one screenshot each."),
+        el("li", {}, "Your vault: the files you copy on other sites, with the page address and title, the image alt text and the time of the copy. Only you and the agents you connect can read your vault. Each file link uses a secret address. You can delete any reference in ", el("a", { href: "/vault" }, "your vault"), "."),
         el("li", {}, "The apps you allowed, and their access tokens."),
       ),
       el("p", {}, "The server does not sell or share this data. The request log holds paths, status codes and times, and no tokens."),

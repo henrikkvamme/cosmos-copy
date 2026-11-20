@@ -22,11 +22,11 @@
   };
 
   const mediaSource = (el) => {
-    if (el.tagName === "IMG") return { kind: "image", url: el.currentSrc || el.src };
+    if (el.tagName === "IMG") return { kind: "image", url: el.currentSrc || el.src, alt: el.alt || undefined };
     const src = [el.currentSrc, el.src, ...[...el.querySelectorAll("source")].map((s) => s.src)].find(
       (s) => s && /^https?:/.test(s),
     );
-    return src ? { kind: "video", url: src } : null;
+    return src ? { kind: "video", url: src, alt: el.getAttribute("aria-label") || el.title || undefined } : null;
   };
 
   const visibleArea = (el) => {

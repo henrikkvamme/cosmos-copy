@@ -54,6 +54,46 @@ async function native(message) {
   return result;
 }
 
+// A copy that is also saved to the vault: the helper answers when the clipboard is set, and
+// sends a second message when the upload has ended. `onSaved` gets that message.
+function nativeCopy(message, onSaved) {
+  return new Promise((resolve, reject) => {
+    const port = chrome.runtime.connectNative(HOST);
+    let answered = false;
+    port.onMessage.addListener((result) => {
+      if (!answered) {
+        answered = true;
+        if (result?.ok) return resolve(result);
+        port.disconnect();
+        return reject(new Error(result?.error ?? "The native helper gave no answer"));
+      }
+      port.disconnect();
+      onSaved(result);
+    });
+    port.onDisconnect.addListener(() => {
+      const error = chrome.runtime.lastError?.message;
+      if (!answered) reject(new Error(error ?? "The native helper gave no answer"));
+      else onSaved({ ok: false, error: error ?? "Server did not answer" });
+    });
+    port.postMessage(message);
+  });
+}
+
+// Where copies from other sites are saved: this browser's key and the linked account.
+// Null when saving is off or the browser is not linked.
+async function vaultTarget(prefs) {
+  if (!prefs.saveOtherSites) return null;
+  const { link } = await chrome.storage.local.get("link");
+  if (!link?.ok || !link.username) return null;
+  return { server: SERVER, username: link.username, key: (await device()).key };
+}
+
+// The id of a reference from another site: "t" and 15 digits.
+function ownId() {
+  const [high, low] = crypto.getRandomValues(new Uint32Array(2));
+  return `t${String((BigInt(high) * 2n ** 32n + BigInt(low)) % 10n ** 15n).padStart(15, "0")}`;
+}
+
 // A copy replaces the clipboard. An add (Shift+C) keeps the batch that is on it. The batch is
 // gone when something else changed the clipboard (the helper checks the change count).
 
@@ -95,10 +135,12 @@ function withLimit(promise, what) {
   return Promise.race([promise, limit]).finally(() => clearTimeout(timer));
 }
 
-async function copyToClipboard(slot, media, name, meta, add) {
+// `save` is set for a copy that also goes to the vault: { upload, onSaved }.
+async function copyToClipboard(slot, media, name, meta, add, save) {
   await slot.turn;
   const batch = add ? (await chrome.storage.session.get("batch")).batch : undefined;
-  const result = await native({ url: media.url, kind: media.kind, name, appendTo: batch?.changeCount });
+  const message = { url: media.url, kind: media.kind, name, appendTo: batch?.changeCount };
+  const result = save ? await nativeCopy({ ...message, upload: save.upload }, save.onSaved) : await native(message);
   const item = { path: result.path, kind: media.kind, thumb: media.thumb ?? media.url, ...meta };
   const kept = result.count > 1 ? (batch?.items ?? []).filter((i) => i.path !== item.path) : [];
   await chrome.storage.session.set({ batch: { changeCount: result.changeCount, items: [...kept, item] } });
@@ -149,9 +191,26 @@ async function copyReference(tab, found, add = false) {
     const media = elementId ? await withLimit(cosmos.media(elementId), "Cosmos") : found.media;
     const meta = elementId ? { pageUrl: `https://www.cosmos.so/e/${elementId}` } : { pageUrl: tab.url };
     const prefs = await settings();
+    // A copy from another site also goes to the vault, but never from a private window.
+    const vault = elementId || tab.incognito ? null : await vaultTarget(prefs);
+    const id = vault ? ownId() : undefined;
+    let copyDone = false;
+    let saveFailed;
+    const showSaveFailed = () => toast(tab.id, `Copied, not saved to vault (${saveFailed})`, true);
+    const save = vault && {
+      upload: { ...vault, meta: { id, kind: media.kind, pageUrl: tab.url, pageTitle: tab.title, alt: media.alt, sourceUrl: media.url } },
+      onSaved(result) {
+        if (result?.ok) return;
+        saveFailed = String(result?.error ?? "Server did not answer");
+        console.warn("TasteRef: vault save failed:", saveFailed);
+        // After the "Copied" toast, so the two do not replace each other.
+        if (copyDone) showSaveFailed();
+      },
+    };
+    const name = elementId ? `cosmos-${elementId}` : id ? `tasteref-${id}` : undefined;
     // Copy and keep at the same time: the clipboard does not wait for Cosmos.
     const [copied, kept] = await Promise.all([
-      copyToClipboard(slot, media, elementId ? `cosmos-${elementId}` : undefined, meta, add).finally(slot.release),
+      copyToClipboard(slot, media, name, meta, add, save).finally(slot.release),
       elementId ? keep(elementId, prefs) : { done: [], failed: [] },
     ]);
 
@@ -159,6 +218,8 @@ async function copyReference(tab, found, add = false) {
     const batch = copied.count > 1 ? ` - ${copied.count} on the clipboard` : "";
     const extra = kept.done.length ? `, ${kept.done.join(" and ")}` : "";
     toast(tab.id, `Copied ${media.kind} (${size} MB)${batch}${extra}.`);
+    copyDone = true;
+    if (saveFailed) setTimeout(showSaveFailed, 2600);
     if (kept.failed.length) {
       console.warn("TasteRef:", kept.failed);
       setTimeout(() => toast(tab.id, `Copied, but Cosmos failed (${kept.failed.join("; ")})`, true), 2600);
@@ -199,7 +260,7 @@ const popupHandlers = {
     const { username } = await cosmos.me();
     // Is a Google account connected? Null when the server cannot tell (no link, or an old server).
     const state = link?.ok ? await post("/connect/state", { deviceKey: key }) : null;
-    return { url: `${SERVER}/mcp`, keyUrl: `${SERVER}/mcp/${username}?key=${key}`, link, connected: state?.connected ?? null };
+    return { url: `${SERVER}/mcp`, vaultUrl: `${SERVER}/vault`, keyUrl: `${SERVER}/mcp/${username}?key=${key}`, link, connected: state?.connected ?? null };
   },
   // Starts the link of this browser's Cosmos account to a Google sign-in, in a new tab.
   async "popup:connect"() {

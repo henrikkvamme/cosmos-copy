@@ -8,6 +8,8 @@ COPY src ./src
 RUN npm run build && npm prune --omit=dev
 
 FROM node:24-bookworm-slim
+# ffmpeg makes the still image of a saved video.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production PORT=3000 DATA_DIR=/data
 WORKDIR /app
 COPY --from=build /app/package.json ./
