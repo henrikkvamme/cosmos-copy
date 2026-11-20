@@ -53,7 +53,7 @@ const VIDEO_TYPES: Record<string, { ext: string; mime: string }> = {
 
 const MAX_WORKING = 2;
 const MAX_WAITING = 16;
-// Every copy id that a clipboard label carries stays valid. The upload rate limit bounds the list.
+// The copy ids of one file. Every id that a clipboard label carries stays valid.
 const MAX_ALIASES = 5000;
 
 export interface OwnItem {
@@ -353,7 +353,9 @@ export class OwnVault {
             if (same.id === meta.id || same.aliases?.includes(meta.id)) return { item: same, existed: true };
             if (used) throw new VaultError(409, "A reference with this id exists.");
             // The copy in the clipboard carries the new id: keep it as a second name of the item.
-            const named: OwnItem = { ...same, aliases: [...(same.aliases ?? []), meta.id].slice(-MAX_ALIASES) };
+            // An id on an earlier clipboard label never stops working: at the limit the save is refused.
+            if ((same.aliases?.length ?? 0) >= MAX_ALIASES) throw new VaultError(507, "This file is saved too many times.");
+            const named: OwnItem = { ...same, aliases: [...(same.aliases ?? []), meta.id] };
             const next: ItemsFile = { version: 1, items: file.items.map((item) => (item === same ? named : item)) };
             await this.write(owner, next);
             this.files.set(owner, next);

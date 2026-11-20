@@ -446,9 +446,11 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
             keep = (reference) => ids.has(reference.id);
           }
           const searchCursor: SearchCursor | undefined = position ? { u: position.u ?? null, k: position.k ?? 0 } : undefined;
-          const result = await pagedSearch({ query: term, limit: want, cursor: searchCursor, userId: ctx.userId, token, keep });
           // The matches from other sites come first, on the first sheet only: the two sources do not share a cursor.
-          const found = position ? result.references : [...ownFound.slice(0, PER_SHEET), ...result.references];
+          // They take their places from the count, and leave one place or more for Cosmos.
+          const ownShare = position ? [] : ownFound.slice(0, Math.min(PER_SHEET, want - 1));
+          const result = await pagedSearch({ query: term, limit: want - ownShare.length, cursor: searchCursor, userId: ctx.userId, token, keep });
+          const found = [...ownShare, ...result.references];
           const inner = result.nextCursor ? decode<SearchCursor>(result.nextCursor, () => true) : undefined;
           const nextCursor = inner
             ? encode({ s: "vault", n: first + found.length, u: inner.u, k: inner.k, c: collectionId, q: queryKey(term) } satisfies SheetCursor)
