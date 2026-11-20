@@ -208,13 +208,25 @@ struct Upload {
     let meta: [String: Any]
 }
 
+/// The hosts that may get the device key.
+let vaultHosts = ["tasteref.henrikkvamme.no"]
+
+/// The upload follows no redirect: a redirect would carry the device key to another address.
+final class NoRedirect: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 let uploadLimits = ["image": 25 * 1024 * 1024, "video": 50 * 1024 * 1024]
 
 func parseUpload(_ raw: Any?) -> Upload? {
     guard let value = raw as? [String: Any], let server = value["server"] as? String,
           let endpoint = URL(string: server + "/vault/upload"), let host = endpoint.host,
-          // The key goes to this address, so it must be HTTPS (or this Mac, for tests).
-          endpoint.scheme == "https" || (endpoint.scheme == "http" && ["127.0.0.1", "localhost"].contains(host)),
+          // The key goes to this address only: the TasteRef server over HTTPS (or this Mac, for tests).
+          (endpoint.scheme == "https" && vaultHosts.contains(host) && endpoint.port == nil)
+            || (endpoint.scheme == "http" && ["127.0.0.1", "localhost"].contains(host)),
           let username = value["username"] as? String, let key = value["key"] as? String,
           let meta = value["meta"] as? [String: Any] else { return nil }
     return Upload(endpoint: endpoint, username: username, key: key, meta: meta)
@@ -236,7 +248,8 @@ func send(_ upload: Upload, data: Data, kind: String) -> [String: Any] {
     request.setValue(meta, forHTTPHeaderField: "x-meta")
     let done = DispatchSemaphore(value: 0)
     var result: (Data?, URLResponse?, Error?)
-    URLSession.shared.uploadTask(with: request, from: data) { body, response, error in
+    let session = URLSession(configuration: .ephemeral, delegate: NoRedirect(), delegateQueue: nil)
+    session.uploadTask(with: request, from: data) { body, response, error in
         result = (body, response, error)
         done.signal()
     }.resume()

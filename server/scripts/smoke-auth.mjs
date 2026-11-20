@@ -323,7 +323,9 @@ try {
     const got = list.json.items ?? [];
     check("vault page: the list is newest first with the source site", list.status === 200 && list.json.linked === true && list.json.total === 3 && got.map((item) => item.id).join() === [...ids].reverse().join() && got[0].site === "example.com" && got[0].pageUrl === "https://example.com/page-2", list.json);
     check("vault page: the links of an item are relative and work", got[0]?.thumb?.startsWith("/vault/t/") && got[0].file.startsWith("/vault/f/") && (await fetch(base + got[0].thumb)).status === 200 && (await fetch(base + got[0].file)).status === 200, got[0]);
-    const rest = await ada.page.get(`/account/api/vault?after=${ids[2]}`);
+    const rest = await ada.page.get(`/account/api/vault?after=${Date.parse(got[0].savedAt)}.${ids[2]}`);
+    const gone = await ada.page.get(`/account/api/vault?after=${Date.parse(got[1].savedAt)}.t999999999999999`);
+    check("vault page: a cursor of a deleted item keeps its position", gone.json.items?.map((item) => item.id).join() === ids[0], gone.json.items?.map((item) => item.id));
     check("vault page: after=<id> gives the items after it", rest.json.items?.map((item) => item.id).join() === [ids[1], ids[0]].join() && rest.json.next === null, rest.json);
     check("vault page: another person sees none of it", (await bob.page.get("/account/api/vault")).json.total === 0);
     check("vault page: another person cannot delete it", (await bob.page.post("/account/api/vault/delete", { id: ids[0] })).status === 404);

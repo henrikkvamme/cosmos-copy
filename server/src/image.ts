@@ -50,6 +50,11 @@ export function setLocalSource(source: (url: string) => Promise<Buffer | undefin
   localSource = source;
 }
 
+/** The still image of a link of the own vault, or undefined for another link. */
+export async function readLocal(url: string): Promise<Buffer | undefined> {
+  return localSource?.(url);
+}
+
 async function download(url: string): Promise<Buffer> {
   const response = await cosmosFetch(url, { headers: { accept: "image/*" } });
   if (!response.ok) throw new Error(`CDN returned HTTP ${response.status}`);

@@ -11,7 +11,7 @@ import { z } from "zod";
 import { CosmosError, getElement, getElementWithToken, type Reference } from "./cosmos.js";
 import { loadVisual } from "./image.js";
 import { errorResult, isOwnId, parseFileName, parseId, parseLabel } from "./mcp.js";
-import { OWN_THUMB_URL, toReference as ownReference } from "./ownvault.js";
+import { matchScore, OWN_THUMB_URL, toReference as ownReference } from "./ownvault.js";
 import {
   ID_PATTERN,
   MAX_CANDIDATES,
@@ -36,6 +36,7 @@ import {
   resolveCollection,
   type SearchCursor,
   type VaultContext,
+  RENEW_HINT,
 } from "./vault.js";
 
 /** How long one wait_for_picks call waits. PICK_WAIT_MS is for tests. */
@@ -406,6 +407,25 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         }
       }
 
+      // The references from other sites, in the whole vault only: a collection is a Cosmos collection.
+      const ownAll = collection || !ctx.own || !ctx.userId ? [] : await ctx.own.list(ctx.userId).catch(() => []);
+      const ownFound = (term ? ownAll.map((item) => ({ item, score: matchScore(item, term) })).filter((m) => m.score > 0).sort((a, b) => b.score - a.score).map((m) => m.item) : ownAll).map((item) =>
+        ownReference(ctx.baseUrl, ctx.userId, item),
+      );
+      if (!ctx.token() && !collection && ctx.own && ctx.userId) {
+        // No Cosmos login: the sheet still shows what this server stores.
+        const offset = position?.o ?? 0;
+        const shown = ownFound.slice(offset, offset + want);
+        const nextCursor = ownFound.length > offset + want ? encode({ s: "vault", n: first + shown.length, o: offset + shown.length, ...(term ? { q: queryKey(term) } : {}) } satisfies SheetCursor) : undefined;
+        return referenceSheets(
+          `The references from other sites in the vault of @${ctx.username}${term ? ` for "${term}"` : ""}: ${first} to ${first + shown.length - 1}. Cosmos references are not in this result: the Cosmos link has no valid login token. ${RENEW_HINT}`,
+          shown,
+          first,
+          nextCursor,
+          source,
+        );
+      }
+
       return withToken("make the contact sheet", async (token, budget) => {
         const collections = await fetchCollections(ctx, token, budget);
         let chosen = collections;
@@ -427,13 +447,15 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
           }
           const searchCursor: SearchCursor | undefined = position ? { u: position.u ?? null, k: position.k ?? 0 } : undefined;
           const result = await pagedSearch({ query: term, limit: want, cursor: searchCursor, userId: ctx.userId, token, keep });
+          // The matches from other sites come first, on the first sheet only: the two sources do not share a cursor.
+          const found = position ? result.references : [...ownFound.slice(0, PER_SHEET), ...result.references];
           const inner = result.nextCursor ? decode<SearchCursor>(result.nextCursor, () => true) : undefined;
           const nextCursor = inner
-            ? encode({ s: "vault", n: first + result.references.length, u: inner.u, k: inner.k, c: collectionId, q: queryKey(term) } satisfies SheetCursor)
+            ? encode({ s: "vault", n: first + found.length, u: inner.u, k: inner.k, c: collectionId, q: queryKey(term) } satisfies SheetCursor)
             : undefined;
           return referenceSheets(
-            `${scope} for "${term}": ${first} to ${first + result.references.length - 1}. Cosmos ranks by meaning, which does not sort well: judge by looking.`,
-            result.references,
+            `${scope} for "${term}": ${first} to ${first + found.length - 1}. Cosmos ranks by meaning, which does not sort well: judge by looking.`,
+            found,
             first,
             nextCursor,
             source,
@@ -443,7 +465,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         const offset = position?.o ?? 0;
         const fromCosmos = await mergeCollections(chosen, token, offset + want, budget);
         // The references from other sites are in the whole vault, not in a Cosmos collection.
-        const own = collection || !ctx.own || !ctx.userId ? [] : (await ctx.own.list(ctx.userId)).map((item) => ownReference(ctx.baseUrl, ctx.userId, item));
+        const own = ownFound;
         const time = (reference: Reference) => Date.parse(reference.savedAt ?? reference.createdAt ?? "") || 0;
         const references = own.length ? [...fromCosmos.references, ...own].sort((a, b) => time(b) - time(a)) : fromCosmos.references;
         const shown = references.slice(offset, offset + want);

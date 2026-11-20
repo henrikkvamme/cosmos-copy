@@ -157,12 +157,17 @@ export class AccountPages {
       if (!owner) return this.json(res, 200, { linked: false, total: 0, items: [], next: null }), true;
       const all = await this.vault.list(owner);
       const after = new URL(req.url ?? "/", "http://localhost").searchParams.get("after");
-      const start = after ? all.findIndex((item) => item.id === after) + 1 : 0;
+      // The cursor is the time and the id of the last item shown. When that item is deleted,
+      // the time still gives the position.
+      const cursor = /^(\d{1,16})\.(t\d{15})$/.exec(after ?? "");
+      const found = cursor ? all.findIndex((item) => item.id === cursor[2]) : -1;
+      const older = cursor && found < 0 ? all.findIndex((item) => Date.parse(item.savedAt) < Number(cursor[1])) : -1;
+      const start = !cursor ? 0 : found >= 0 ? found + 1 : older >= 0 ? older : all.length;
       const page = all.slice(start, start + VAULT_PAGE_SIZE);
       this.json(res, 200, {
         linked: true,
         total: all.length,
-        next: start + page.length < all.length ? page[page.length - 1]!.id : null,
+        next: start + page.length < all.length ? `${Date.parse(page[page.length - 1]!.savedAt)}.${page[page.length - 1]!.id}` : null,
         // Relative links: the page is on this origin.
         items: page.map((item) => ({
           id: item.id,

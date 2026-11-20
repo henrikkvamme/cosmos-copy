@@ -53,7 +53,8 @@ const VIDEO_TYPES: Record<string, { ext: string; mime: string }> = {
 
 const MAX_WORKING = 2;
 const MAX_WAITING = 16;
-const MAX_ALIASES = 50;
+// Every copy id that a clipboard label carries stays valid. The upload rate limit bounds the list.
+const MAX_ALIASES = 5000;
 
 export interface OwnItem {
   id: string;

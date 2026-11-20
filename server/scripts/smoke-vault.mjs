@@ -233,6 +233,9 @@ try {
     const sheet = await call(client, "contact_sheet", { source: "vault", count: 12 });
     const sheetIds = (sheet.structuredContent?.references ?? []).map((r) => String(r.id));
     check("the contact sheet of the vault holds own items", !sheet.isError && sheetIds.includes(idRed) && sheetIds.includes(idBlue) && imagesOf(sheet).length >= 1, textOf(sheet).slice(0, 400));
+    check("the contact sheet draws the still images of own items", !/The image of (1|2)[, ]/.test(textOf(sheet)), textOf(sheet).match(/.*did not load.*/)?.[0]);
+    const sheetQuery = await call(client, "contact_sheet", { source: "vault", query: "crimson hero" });
+    check("a contact sheet with a query finds own items", !sheetQuery.isError && (sheetQuery.structuredContent?.references ?? []).some((r) => String(r.id) === idRed), textOf(sheetQuery).slice(0, 400));
 
     const label = `tasteref ${idRed}-${checkDigits(idRed)} · call note_references`;
     const noted = await call(client, "note_references", { task: "smoke landing page", pasted: [label] });
@@ -307,6 +310,8 @@ try {
     check("with no Cosmos token, get_reference of an own item works", !got.isError && imagesOf(got).length === 1, textOf(got));
     const noted = await call(offline, "note_references", { task: "smoke offline", pasted: [`tasteref ${idBlue}-${checkDigits(idBlue)}`] });
     check("with no Cosmos token, note_references takes a new own label", !noted.isError && !/not recorded|could not/i.test(textOf(noted)), textOf(noted));
+    const offlineSheet = await call(offline, "contact_sheet", { source: "vault" });
+    check("with no Cosmos token, the contact sheet gives the own items and the renew hint", !offlineSheet.isError && (offlineSheet.structuredContent?.references ?? []).some((r) => String(r.id) === idRed) && /renew/i.test(textOf(offlineSheet)), textOf(offlineSheet).slice(0, 400));
     const inCollection = await call(offline, "list_references", { collection: "Agent references" });
     check("with no Cosmos token, a collection gives the renew hint", inCollection.isError === true && /renew/i.test(textOf(inCollection)), textOf(inCollection));
     await offline.close();

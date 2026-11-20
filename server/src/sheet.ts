@@ -5,6 +5,7 @@
 
 import sharp, { type OverlayOptions } from "sharp";
 import { cosmosFetch } from "./cosmos.js";
+import { readLocal } from "./image.js";
 
 export const SHEET_COLUMNS = 6;
 export const SHEET_ROWS = 5;
@@ -74,13 +75,18 @@ export function cdnThumb(url: string, w: number, knownWidth?: number): string {
 /** One cell image (contain, on the cell colour), or undefined when it does not load. */
 async function cellImage(cell: SheetCell): Promise<Buffer | undefined> {
   if (!cell.thumb) return undefined;
-  const url = cdnThumb(cell.thumb, CELL_W * 2, cell.width);
-  const cached = cacheGet(url);
-  if (cached) return cached;
   try {
-    const response = await cosmosFetch(url, { headers: { accept: "image/*" } });
-    if (!response.ok) return undefined;
-    const input = Buffer.from(await response.arrayBuffer());
+    // A reference from another site: this server has its still image.
+    const local = await readLocal(cell.thumb);
+    const url = local ? cell.thumb : cdnThumb(cell.thumb, CELL_W * 2, cell.width);
+    const cached = cacheGet(url);
+    if (cached) return cached;
+    let input = local;
+    if (!input) {
+      const response = await cosmosFetch(url, { headers: { accept: "image/*" } });
+      if (!response.ok) return undefined;
+      input = Buffer.from(await response.arrayBuffer());
+    }
     if (input.length > MAX_THUMB_BYTES) return undefined;
     const output = await sharp(input, { limitInputPixels: 60_000_000, animated: false })
       .rotate()
