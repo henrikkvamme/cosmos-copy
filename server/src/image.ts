@@ -1,5 +1,5 @@
-// Loads the still image of a reference from the Cosmos CDN and makes it small enough for an
-// MCP image content block.
+// Loads the still image of a reference, from the Cosmos CDN or from the own vault, and makes it
+// small enough for an MCP image content block.
 
 import sharp from "sharp";
 import { cosmosFetch, type Reference } from "./cosmos.js";
@@ -43,6 +43,13 @@ function cachePut(url: string, visual: Visual): void {
   }
 }
 
+/** Reads the still image of a reference that this server stores (the own vault), from its link. */
+let localSource: ((url: string) => Promise<Buffer | undefined>) | undefined;
+
+export function setLocalSource(source: (url: string) => Promise<Buffer | undefined>): void {
+  localSource = source;
+}
+
 async function download(url: string): Promise<Buffer> {
   const response = await cosmosFetch(url, { headers: { accept: "image/*" } });
   if (!response.ok) throw new Error(`CDN returned HTTP ${response.status}`);
@@ -81,14 +88,19 @@ export async function loadVisual(reference: Pick<Reference, "thumbnailUrl" | "wi
 
   // Ask the CDN for a WebP copy, which is a smaller download. The CDN enlarges an image when "w"
   // is larger than its width, so never ask for more than the known width.
-  const resized = new URL(source);
-  resized.searchParams.set("format", "webp");
-  if (reference.width) resized.searchParams.set("w", String(Math.min(reference.width, longEdgeCap)));
   let input: Buffer;
-  try {
-    input = await download(resized.toString());
-  } catch {
-    input = await download(source);
+  const local = await localSource?.(source);
+  if (local) {
+    input = local;
+  } else {
+    const resized = new URL(source);
+    resized.searchParams.set("format", "webp");
+    if (reference.width) resized.searchParams.set("w", String(Math.min(reference.width, longEdgeCap)));
+    try {
+      input = await download(resized.toString());
+    } catch {
+      input = await download(source);
+    }
   }
 
   const attempts = ([

@@ -20,16 +20,20 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AccountPages } from "./account.js";
 import { createAuth, type Auth } from "./auth.js";
 import { CosmosError, getCollection, JWT_PATTERN, SLUG_PATTERN, USERNAME_PATTERN, type Collection } from "./cosmos.js";
+import { setLocalSource } from "./image.js";
 import { buildInstructions, buildServer } from "./mcp.js";
+import { OwnVault } from "./ownvault.js";
 import { Pages } from "./pages.js";
 import { PickStore } from "./picks.js";
 import { clientIp, RateLimiter } from "./ratelimit.js";
 import { isExpired, jwtExpiry, LinkStore, TooManyDevicesError } from "./store.js";
 import { buildVaultServer, fetchMe } from "./vault.js";
+import { VaultRoutes } from "./vaultroutes.js";
 
 const PORT = Number(process.env.PORT ?? 3000);
 const MAX_BODY_BYTES = 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 60_000;
+/** The time to receive one request. A copied video of 50 MB must fit on a slow line. */
+const REQUEST_TIMEOUT_MS = 5 * 60_000;
 const INSTRUCTIONS_WAIT_MS = 2_500;
 const MAX_LINK_BODY_BYTES = 16 * 1024;
 const DATA_DIR = process.env.DATA_DIR || "/data";
@@ -100,6 +104,10 @@ function log(fields: Record<string, unknown>): void {
 }
 
 const pages = new Pages(picks, log);
+/** The references from other sites. */
+const ownVault = new OwnVault(DATA_DIR, log);
+setLocalSource((url) => ownVault.thumbOfUrl(url));
+const vaultRoutes = new VaultRoutes(ownVault, store, keyFailureLimiter, log);
 
 /** The origin of this server as the client sees it, for links in tool results. */
 function baseUrl(req: IncomingMessage): string {
@@ -207,6 +215,7 @@ async function handleVault(req: IncomingMessage, res: ServerResponse, username: 
     userId: account.userId,
     token: () => store.token(account.userId, log)?.token,
     dropToken: (token) => store.dropToken(account.userId, token, log),
+    own: ownVault,
     picks,
     baseUrl: baseUrl(req),
     log,
@@ -263,6 +272,7 @@ async function handleSignedIn(req: IncomingMessage, res: ServerResponse): Promis
     userId: account.userId,
     token: () => store.token(account.userId, log)?.token,
     dropToken: (token) => store.dropToken(account.userId, token, log),
+    own: ownVault,
     picks,
     baseUrl: baseUrl(req),
     log,
@@ -408,6 +418,7 @@ const httpServer = createServer((req, res) => {
     if (auth?.owns(path)) return auth.handle(req, res);
     if (accountPages && (await accountPages.handle(req, res, path, clientIp(req)))) return;
     if (await pages.handle(req, res, path, clientIp(req))) return;
+    if (await vaultRoutes.handle(req, res, path, clientIp(req))) return;
     if (path === "/mcp") {
       if (req.method !== "POST") return sendRpcError(res, 405, -32000, "Method not allowed. Use POST.", { allow: "POST" });
       methods = await handleSignedIn(req, res);
@@ -451,7 +462,11 @@ httpServer.headersTimeout = 15_000;
 httpServer.setTimeout(REQUEST_TIMEOUT_MS + 5_000);
 
 // An account with no device and no user is deleted. Its picker links, canvases and history go with it.
-store.onAccountDeleted = (userId) => void picks.deleteOwner(userId, log);
+store.onAccountDeleted = (userId) => {
+  void picks.deleteOwner(userId, log);
+  void ownVault.deleteOwner(userId);
+};
+await ownVault.cleanTemp();
 await store.load(log);
 // The usernames of a version 1 file stay in links.json until their pick data has moved.
 if (await picks.load(log, store.legacyOwners)) {

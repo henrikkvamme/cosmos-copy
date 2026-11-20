@@ -10,7 +10,8 @@ import sharp from "sharp";
 import { z } from "zod";
 import { CosmosError, getElement, getElementWithToken, type Reference } from "./cosmos.js";
 import { loadVisual } from "./image.js";
-import { errorResult, parseFileName, parseId, parseLabel } from "./mcp.js";
+import { errorResult, isOwnId, parseFileName, parseId, parseLabel } from "./mcp.js";
+import { OWN_THUMB_URL, toReference as ownReference } from "./ownvault.js";
 import {
   ID_PATTERN,
   MAX_CANDIDATES,
@@ -171,10 +172,12 @@ function referenceLine(number: number, reference: Reference): string {
 }
 
 function toTile(reference: Reference, round: number): Tile | undefined {
-  if (!reference.thumbnailUrl?.startsWith("https://cdn.cosmos.so/")) return undefined;
+  // Tiles come from references that this server resolved: the Cosmos CDN, or the own vault.
+  const thumb = reference.thumbnailUrl;
+  if (!thumb || (!thumb.startsWith("https://cdn.cosmos.so/") && !OWN_THUMB_URL.test(thumb))) return undefined;
   return {
     id: reference.id,
-    thumb: reference.thumbnailUrl,
+    thumb,
     w: reference.width,
     h: reference.height,
     kind: reference.kind === "video" ? "video" : "image",
@@ -191,8 +194,17 @@ function sessionIdFrom(value: string): string | undefined {
 export function registerDesignTools(server: McpServer, ctx: DesignContext, withToken: WithToken): void {
   const mine = (owner: string) => owner === ctx.userId;
 
+  /** A reference from another site, from the own vault. */
+  async function ownById(id: string): Promise<Reference | undefined> {
+    const item = ctx.own && ctx.userId ? await ctx.own.get(ctx.userId, id).catch(() => undefined) : undefined;
+    return item ? ownReference(ctx.baseUrl, ctx.userId, item) : undefined;
+  }
+  /** The page of a reference: on Cosmos, or on the vault page for a reference from another site. */
+  const pageOf = (id: string) => (isOwnId(id) ? `${ctx.baseUrl}/vault#${id}` : `https://www.cosmos.so/e/${id}`);
+
   /** Reads an element as public data, else as the account (a private element). */
   async function resolveReference(id: string): Promise<Reference | undefined> {
+    if (isOwnId(id)) return ownById(id);
     try {
       return await getElement(id);
     } catch (error) {
@@ -429,8 +441,14 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         }
 
         const offset = position?.o ?? 0;
-        const { references, more, truncated } = await mergeCollections(chosen, token, offset + want, budget);
-        const shown = references.slice(offset);
+        const fromCosmos = await mergeCollections(chosen, token, offset + want, budget);
+        // The references from other sites are in the whole vault, not in a Cosmos collection.
+        const own = collection || !ctx.own || !ctx.userId ? [] : (await ctx.own.list(ctx.userId)).map((item) => ownReference(ctx.baseUrl, ctx.userId, item));
+        const time = (reference: Reference) => Date.parse(reference.savedAt ?? reference.createdAt ?? "") || 0;
+        const references = own.length ? [...fromCosmos.references, ...own].sort((a, b) => time(b) - time(a)) : fromCosmos.references;
+        const shown = references.slice(offset, offset + want);
+        const more = fromCosmos.more || references.length > offset + want;
+        const truncated = fromCosmos.truncated;
         const nextCursor = more ? encode({ s: "vault", n: first + shown.length, o: offset + shown.length, c: collectionId } satisfies SheetCursor) : undefined;
         let heading = `${scope}, newest saved first: ${first} to ${first + shown.length - 1}.`;
         if (truncated) heading += " The vault is larger than the newest 5,000 references.";
@@ -523,7 +541,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
       const visual = visuals[index];
       content.push({
         type: "text",
-        text: `Pick ${index + 1}: [${tile.id}] ${tile.kind} - https://www.cosmos.so/e/${tile.id}${visual ? "" : " (the image did not load: call get_reference)"}`,
+        text: `Pick ${index + 1}: [${tile.id}] ${tile.kind} - ${pageOf(tile.id)}${visual ? "" : " (the image did not load: call get_reference)"}`,
       });
       if (visual) content.push({ type: "image", data: visual.data, mimeType: visual.mimeType });
     });
@@ -549,7 +567,7 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         task: session.task,
         status: "done",
         passed,
-        picks: picks.map((tile, index) => ({ number: index + 1, id: tile.id, kind: tile.kind, pageUrl: `https://www.cosmos.so/e/${tile.id}`, thumbnailUrl: tile.thumb })),
+        picks: picks.map((tile, index) => ({ number: index + 1, id: tile.id, kind: tile.kind, pageUrl: pageOf(tile.id), thumbnailUrl: tile.thumb })),
       },
     };
   }
@@ -826,6 +844,11 @@ export function registerDesignTools(server: McpServer, ctx: DesignContext, withT
         const thumb = inHistory.get(id)?.thumb ?? known.get(id)?.thumb;
         if (thumb) return { id, thumb };
         const notFound = (error: unknown) => error instanceof CosmosError && error.code === "not_found";
+        if (isOwnId(id)) {
+          const own = await ownById(id);
+          const ownTile = own && toTile(own, 0);
+          return ownTile ? { id, thumb: ownTile.thumb } : "absent";
+        }
         let reference: Reference;
         try {
           reference = await getElement(id);

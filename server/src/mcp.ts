@@ -90,16 +90,25 @@ export function decodeCursor(cursor: string): number | undefined {
   }
 }
 
-/** Accepts 1754412159, "1754412159", "cosmos-1754412159" and https://www.cosmos.so/e/1754412159. */
+/** An id of the own vault: "t" and 15 digits. A Cosmos id is digits only. */
+export function isOwnId(id: string): boolean {
+  return /^t\d{15}$/.test(id);
+}
+
+/**
+ * Accepts 1754412159, "1754412159", "cosmos-1754412159" and https://www.cosmos.so/e/1754412159,
+ * and for the own vault "t123456789012345" and "tasteref-t123456789012345".
+ */
 export function parseId(value: string | number): string | undefined {
   const text = String(value).trim();
-  const match = /^(?:cosmos-)?(\d{1,19})$/.exec(text) ?? /cosmos\.so\/e\/(\d{1,19})(?:[/?#]|$)/.exec(text);
-  return match?.[1];
+  const match =
+    /^(?:cosmos-)?(\d{1,19})$/.exec(text) ?? /^(?:tasteref-)?(t\d{15})$/i.exec(text) ?? /cosmos\.so\/e\/(\d{1,19})(?:[/?#]|$)/.exec(text);
+  return match?.[1]?.toLowerCase();
 }
 
 /** The two check digits of a reference id on the strip of a copied image (mod 97, as in an IBAN). */
 export function checkDigits(id: string): string {
-  return String(98n - ((BigInt(id) * 100n) % 97n)).padStart(2, "0");
+  return String(98n - ((BigInt(id.replace(/^t/, "")) * 100n) % 97n)).padStart(2, "0");
 }
 
 /**
@@ -109,8 +118,11 @@ export function checkDigits(id: string): string {
 export function parseLabel(value: string | number): { id: string } | { bad: string } {
   const text = String(value).trim();
   // The strip also names this tool after the label, and an agent can send that text along.
-  const match = /^(?:cosmos[\s:-]*)?(\d{1,19})\s*-\s*(\d{2})(?:\s*[^\s\d].*)?$/i.exec(text);
-  return match && checkDigits(match[1]!) === match[2] ? { id: match[1]! } : { bad: text };
+  const match =
+    /^(?:cosmos[\s:-]*)?(\d{1,19})\s*-\s*(\d{2})(?:\s*[^\s\d].*)?$/i.exec(text) ??
+    /^(?:tasteref[\s:-]*)?(t\d{15})\s*-\s*(\d{2})(?:\s*[^\s\d].*)?$/i.exec(text);
+  const id = match?.[1]?.toLowerCase();
+  return id && checkDigits(id) === match![2] ? { id } : { bad: text };
 }
 
 /**
@@ -119,7 +131,8 @@ export function parseLabel(value: string | number): { id: string } | { bad: stri
  * The name has no check digits, so the caller must check that the reference exists.
  */
 export function parseFileName(value: string | number): string | undefined {
-  return /(?:^|[\/\\])cosmos-(\d{1,19})\.[a-z0-9]{2,5}$/i.exec(String(value).trim())?.[1];
+  const text = String(value).trim();
+  return (/(?:^|[\/\\])cosmos-(\d{1,19})\.[a-z0-9]{2,5}$/i.exec(text) ?? /(?:^|[\/\\])tasteref-(t\d{15})\.[a-z0-9]{2,5}$/i.exec(text))?.[1]?.toLowerCase();
 }
 
 export const limitSchema = z
@@ -132,7 +145,7 @@ export const limitSchema = z
 
 export const idSchema = z
   .union([z.string().max(200), z.number().int().positive()])
-  .describe("The reference id, such as 1754412159. A cosmos.so/e/<id> URL also works.");
+  .describe("The reference id, such as 1754412159, or t123456789012345 for a reference from another site. A cosmos.so/e/<id> URL also works.");
 
 export interface VisualInfo {
   width: number;

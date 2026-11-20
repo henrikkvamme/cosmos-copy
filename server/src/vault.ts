@@ -28,8 +28,11 @@ import {
   idSchema,
   limitSchema,
   parseId,
+  isOwnId,
   referenceContent,
 } from "./mcp.js";
+
+import { matchScore, toReference as ownReference, type OwnItem, type OwnVault } from "./ownvault.js";
 
 export const RENEW_HINT = "Visit cosmos.so in Brave to renew the link.";
 
@@ -50,6 +53,8 @@ export interface VaultContext {
   token(): string | undefined;
   /** Forget a token that Cosmos refused. */
   dropToken(token: string): void;
+  /** The references from other sites that this server stores. Not set for a user with no account. */
+  own?: OwnVault;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -460,14 +465,15 @@ function collectionText(collection: VaultCollection): string {
 
 export function buildVaultInstructions(username: string): string {
   return [
-    `This server gives access to the Cosmos (cosmos.so) vault of @${username}: all collections, private ones included.`,
+    `This server gives access to the reference vault of @${username}: their Cosmos (cosmos.so) collections, private ones included, and the images and videos that they copied on other sites with TasteRef.`,
     "The vault holds the user's saved design references: images and videos of UI, motion, layout, type and visual style that they saved as examples of what they like.",
+    "A reference from another site has an id such as t123456789012345. It has no description until an agent writes one: when a result says that references need a description, call describe_references, unless the user waits for an urgent answer.",
     "Use search_references to find saved references by meaning, list_references to see the newest saves, and list_collections to see the collections.",
     "Use search_cosmos to find new references on all of Cosmos. Use save_reference only when the user asks you to save something.",
     "The list and search tools return text only. Call get_reference with an id to see the image.",
     "",
-    "First look at the images in the user's message. An image that they copied with TasteRef has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65 · call note_references\": the reference id and two check digits. The strip is not part of the design.",
-    "A file that they attached with a name such as \"cosmos-1277394779.mp4\" is also a reference they copied: a video has no strip, so give its file name in place of a label.",
+    "First look at the images in the user's message. An image that they copied with TasteRef has a thin dark strip at its bottom edge with a label such as \"cosmos 1850854004-65 · call note_references\" or \"tasteref t123456789012345-42 · call note_references\": the reference id and two check digits. The strip is not part of the design.",
+    "A file that they attached with a name such as \"cosmos-1277394779.mp4\" or \"tasteref-t123456789012345.mp4\" is also a reference they copied: a video has no strip, so give its file name in place of a label.",
     "When a message has such images or files, call note_references with the task and the labels before you do other work. The call returns at once and needs no answer from the user, so make it also when they are away. The images are their picks: do not open a picker, and follow the steps in the result.",
     "When the user says that they do not want a reference, or that they did not like what came of it, call note_references with it in rejected.",
     "",
@@ -500,6 +506,16 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
   function failure(error: unknown, what: string): CallToolResult {
     const message = error instanceof Error ? error.message : String(error);
     return errorResult(`Could not ${what}: ${message}`);
+  }
+
+  const hasOwn = Boolean(ctx.own && ctx.userId);
+  const ownItems = async (): Promise<OwnItem[]> => (hasOwn ? ctx.own!.list(ctx.userId) : []);
+  const asOwn = (item: OwnItem): VaultReference => ({ ...ownReference(ctx.baseUrl, ctx.userId, item), collections: [] });
+  const NO_COSMOS = `Cosmos references are not in this result: the Cosmos link has no valid login token. ${RENEW_HINT}`;
+  /** A line that asks the agent to describe the references that have no description. */
+  function describeNote(items: OwnItem[]): string {
+    const open = items.filter((item) => !item.description).length;
+    return open ? `\n\n${open} ${open === 1 ? "reference" : "references"} from other sites ${open === 1 ? "needs" : "need"} a description. Call describe_references to see them and write one.` : "";
   }
 
   /** Runs a tool body with the token. Gives the renew hint when the token is missing or refused. */
@@ -558,29 +574,41 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
       }),
   );
 
+  /** Without a token, the result holds the references from other sites only. */
   async function listReferences(
-    token: string,
+    token: string | undefined,
     budget: Budget,
     options: { collection?: string; cursor?: string; limit?: number },
   ): Promise<CallToolResult> {
     const position = options.cursor ? decodeListCursor(options.cursor) : { o: 0 };
     if (!position) return errorResult("The cursor is not valid. Use the nextCursor of a list_references result.");
-    const collections = await fetchCollections(ctx, token, budget);
-    let chosen = collections;
     let scope = `the vault of @${ctx.username}`;
-    if (options.collection) {
-      const { collection, error } = resolveCollection(collections, options.collection);
-      if (!collection) return errorResult(error!);
-      chosen = [collection];
-      scope = `the collection "${collection.name}"`;
+    let collectionId: string | undefined;
+    let chosen: VaultCollection[] = [];
+    if (token) {
+      const collections = await fetchCollections(ctx, token, budget);
+      chosen = collections;
+      if (options.collection) {
+        const { collection, error } = resolveCollection(collections, options.collection);
+        if (!collection) return errorResult(error!);
+        chosen = [collection];
+        scope = `the collection "${collection.name}"`;
+        collectionId = collection.id;
+      }
     }
-    const collectionId = options.collection ? chosen[0]!.id : undefined;
     if (options.cursor && position.c !== collectionId) {
       return errorResult("The cursor belongs to another collection. Use the nextCursor with the same collection.");
     }
     const limit = options.limit ?? DEFAULT_LIMIT;
-    const { references, more, truncated } = await mergeCollections(chosen, token, position.o + limit, budget);
-    const shown = references.slice(position.o);
+    const need = position.o + limit;
+    const fromCosmos = token ? await mergeCollections(chosen, token, need, budget) : { references: [], more: false, truncated: false };
+    // A collection is a Cosmos collection: the references from other sites are in the whole vault only.
+    const items = options.collection ? [] : await ownItems();
+    // The newest `need` of both: Cosmos gave its newest `need`, and the own vault gave all.
+    const merged = items.length ? [...fromCosmos.references, ...items.map(asOwn)].sort((a, b) => savedTime(b) - savedTime(a)) : fromCosmos.references;
+    const shown = merged.slice(position.o, need);
+    const more = fromCosmos.more || merged.length > need;
+    const truncated = fromCosmos.truncated;
     const end = position.o + shown.length;
     const nextCursor = more ? encode({ o: end, c: collectionId } satisfies ListCursor) : undefined;
     let text =
@@ -589,6 +617,8 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
         : `References ${position.o + 1} to ${end} in ${scope}, newest saved first.\n\n${shown.map(vaultText).join("\n\n")}`;
     text += nextCursor ? `\n\nnextCursor: ${nextCursor}` : "\n\nThis is the last page.";
     if (truncated) text += `\nThe vault is larger: only its newest ${MAX_ELEMENTS} references are available.`;
+    if (!token) text += `\n\n${NO_COSMOS}`;
+    text += describeNote(items);
     return {
       content: [{ type: "text", text }],
       structuredContent: { offset: position.o, returned: shown.length, nextCursor: nextCursor ?? null, truncated, references: shown },
@@ -598,9 +628,9 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
   server.registerTool(
     "list_references",
     {
-      title: "List saved Cosmos references",
+      title: "List saved references",
       description:
-        `List the references @${ctx.username} saved on Cosmos, newest saved first, from all collections or one. An ` +
+        `List the references @${ctx.username} saved on Cosmos or copied on other sites, newest saved first, from all collections or one. An ` +
         "element in more than one collection shows once, with its collections. Give the nextCursor of a result as " +
         "cursor to get the next page. The result is text only: call get_reference with an id to see the image.",
       inputSchema: {
@@ -611,16 +641,18 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     ({ collection, cursor, limit }) =>
-      withToken("list the references", (token, budget) => listReferences(token, budget, { collection, cursor, limit })),
+      !ctx.token() && hasOwn && !collection
+        ? listReferences(undefined, new Budget(), { cursor, limit }).catch((error: unknown) => failure(error, "list the references"))
+        : withToken("list the references", (token, budget) => listReferences(token, budget, { collection, cursor, limit })),
   );
 
   server.registerTool(
     "search_references",
     {
-      title: "Search saved Cosmos references",
+      title: "Search saved references",
       description:
-        `Search the references @${ctx.username} saved on Cosmos (the user's design references: UI, motion, layout, ` +
-        "type and visual style). Cosmos ranks the results by meaning, so describe what you look for in plain words, " +
+        `Search the references @${ctx.username} saved on Cosmos or copied on other sites (the user's design references: UI, motion, layout, ` +
+        "type and visual style). Cosmos ranks its results by meaning, so describe what you look for in plain words, " +
         'such as "dark dashboard with charts" or "playful onboarding animation". Use it when you need visual ' +
         'inspiration, or to find the reference the user mentioned ("like that reference I saved"). With no query it ' +
         "lists the newest saves. Give the nextCursor of a result as cursor to get more. The result is text only: " +
@@ -634,9 +666,41 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    ({ query, collection, kind, cursor, limit }) =>
-      withToken("search the references", async (token, budget) => {
-        const term = (query ?? "").trim();
+    async ({ query, collection, kind, cursor, limit }) => {
+      const term = (query ?? "").trim();
+      // References from other sites: a word match on what the agent and the page said about them.
+      // They are in the first page of a search over the whole vault.
+      const items = term && !collection && !cursor ? await ownItems().catch(() => []) : [];
+      const ownMatches = items
+        .filter((item) => !kind || item.kind === kind)
+        .map((item) => ({ item, score: matchScore(item, term) }))
+        .filter((match) => match.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10)
+        .map((match) => asOwn(match.item));
+      if (!ctx.token() && hasOwn && !collection) {
+        try {
+          if (!term) {
+            const listed = await listReferences(undefined, new Budget(), { cursor, limit: kind ? 50 : limit });
+            if (!kind) return listed;
+            const all = ((listed.structuredContent as { references?: VaultReference[] } | undefined)?.references ?? []).filter((r) => r.kind === kind);
+            const shown = all.slice(0, limit ?? DEFAULT_LIMIT);
+            return {
+              content: [{ type: "text", text: `${shown.length} ${kind}s among the newest saves.\n\n${shown.map(vaultText).join("\n\n")}\n\n${NO_COSMOS}` }],
+              structuredContent: { returned: shown.length, references: shown },
+            };
+          }
+          const text =
+            (ownMatches.length === 0
+              ? `No references from other sites match "${term}". Try other words, or call list_references.`
+              : `${ownMatches.length} references for "${term}", best match first. Call get_reference with an id to see one.\n\n${ownMatches.map(compactText).join("\n\n")}`) +
+            `\n\n${NO_COSMOS}${describeNote(items)}`;
+          return { content: [{ type: "text", text }], structuredContent: { query: term, returned: ownMatches.length, nextCursor: null, references: ownMatches } };
+        } catch (error) {
+          return failure(error, "search the references");
+        }
+      }
+      return withToken("search the references", async (token, budget) => {
         if (!term && !kind) return listReferences(token, budget, { collection, cursor, limit });
         if (!term) {
           // Cosmos returns nothing for an empty term: filter the newest saves by kind here.
@@ -672,24 +736,27 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
           token,
           keep,
         });
+        const found: Reference[] = [...ownMatches, ...result.references];
         let text =
-          result.references.length === 0
+          found.length === 0
             ? `No references in ${scope} match "${term}". Try other words, or call list_references.`
-            : `${result.references.length} references in ${scope} for "${term}", best match first. Call get_reference with an id to see one.\n\n${result.references.map(compactText).join("\n\n")}`;
+            : `${found.length} references in ${scope} for "${term}", best match first${ownMatches.length ? " (the references from other sites come first)" : ""}. Call get_reference with an id to see one.\n\n${found.map(compactText).join("\n\n")}`;
         if (result.nextCursor) text += `\n\nnextCursor: ${result.nextCursor}`;
+        text += describeNote(items);
         return {
           content: [{ type: "text", text }],
-          structuredContent: { query: term, returned: result.references.length, nextCursor: result.nextCursor ?? null, references: result.references },
+          structuredContent: { query: term, returned: found.length, nextCursor: result.nextCursor ?? null, references: found },
         };
-      }),
+      });
+    },
   );
 
   server.registerTool(
     "get_reference",
     {
-      title: "Get and see one Cosmos reference",
+      title: "Get and see one reference",
       description:
-        "Get one Cosmos reference by id, with its metadata and the visual as an image you can see. Use it after " +
+        "Get one reference by id, with its metadata and the visual as an image you can see. Use it after " +
         "search_references, list_references or search_cosmos, before you describe a reference or copy its style, and " +
         "when the user gives you a cosmos.so/e/<id> link. For a video you get its thumbnail, and the text gives the MP4 URL.",
       inputSchema: { id: idSchema },
@@ -699,6 +766,14 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
       const id = parseId(rawId);
       if (!id) return errorResult(`"${rawId}" is not a reference id. Use an id from search_references, such as 1754412159.`);
       let reference: Reference;
+      if (isOwnId(id)) {
+        const item = hasOwn ? await ctx.own!.get(ctx.userId, id).catch(() => undefined) : undefined;
+        if (!item) return errorResult(`No reference in the vault has the id ${id}. Call list_references to find ids.`);
+        reference = asOwn(item);
+        const note = item.description ? "" : "\n\nThis reference has no description. Look at the image, then call describe_references with this id and your description.";
+        const { content, visual } = await referenceContent(reference, fullText(reference) + note);
+        return { content, structuredContent: { ...reference, visual } };
+      }
       try {
         reference = await getElement(id);
       } catch (error) {
@@ -789,6 +864,67 @@ export function buildVaultServer(ctx: DesignContext, notice?: string): McpServer
           structuredContent: { saved: true, id, pageUrl: `https://www.cosmos.so/e/${id}`, collection: target, url: target.url },
         };
       }),
+  );
+
+  server.registerTool(
+    "describe_references",
+    {
+      title: "Describe references from other sites",
+      description:
+        "A reference that the user copied on a site other than Cosmos has no description, so search cannot find it. " +
+        "This tool shows you up to 4 such references as images. Look at each one and call the tool again with a " +
+        "description for each: the same call stores them and shows the next ones. Write 1 or 2 sentences on what it " +
+        "shows and its visual style (layout, colour, type, mood), and 5 to 12 tags of one or two words. Describe only " +
+        "what you see. Stop when the result says that none are left.",
+      inputSchema: {
+        descriptions: z
+          .array(
+            z.object({
+              id: idSchema,
+              description: z.string().min(10).max(600).describe("What the reference shows and its visual style."),
+              tags: z.array(z.string().min(1).max(40)).max(20).optional().describe("Search words, such as dark, dashboard, serif, bento grid."),
+            }),
+          )
+          .max(8)
+          .optional()
+          .describe("Your descriptions of references that an earlier call showed you."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ descriptions }) => {
+      if (!hasOwn) return errorResult("This account has no references from other sites.");
+      try {
+        const stored: string[] = [];
+        const unknown: string[] = [];
+        for (const entry of descriptions ?? []) {
+          const id = parseId(entry.id);
+          if (id && isOwnId(id) && (await ctx.own!.describe(ctx.userId, id, entry.description, entry.tags ?? []))) stored.push(id);
+          else unknown.push(String(entry.id));
+        }
+        const open = (await ownItems()).filter((item) => !item.description);
+        const batch = open.slice(0, 4);
+        const content: CallToolResult["content"] = [];
+        let text = stored.length ? `Stored ${stored.length} ${stored.length === 1 ? "description" : "descriptions"}. ` : "";
+        if (unknown.length) text += `Not stored (no such reference from another site): ${unknown.join(", ")}. `;
+        text +=
+          open.length === 0
+            ? "No reference needs a description."
+            : `${open.length} ${open.length === 1 ? "reference needs" : "references need"} a description. The next ${batch.length} follow, each with its id before the image. Call describe_references with your descriptions.`;
+        content.push({ type: "text", text });
+        for (const item of batch) {
+          const reference = asOwn(item);
+          const facts = [`id: ${item.id}`, `kind: ${item.kind}`, item.site && `site: ${item.site}`, item.pageTitle && `page title: ${item.pageTitle}`, item.alt && `alt text: ${item.alt}`]
+            .filter(Boolean)
+            .join("\n");
+          const shown = await referenceContent(reference, facts).catch(() => undefined);
+          if (shown) content.push(...shown.content);
+          else content.push({ type: "text", text: `${facts}\n(the image could not be loaded)` });
+        }
+        return { content, structuredContent: { stored, unknown, left: open.length, shown: batch.map((item) => item.id) } };
+      } catch (error) {
+        return failure(error, "describe the references");
+      }
+    },
   );
 
   registerDesignTools(server, ctx, withToken);
