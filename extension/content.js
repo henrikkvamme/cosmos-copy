@@ -75,15 +75,6 @@
     const parent = commonParent(a, b);
     return !parent || parent === document.body || parent === document.documentElement ? Infinity : area(parent);
   };
-  // True when an ancestor cuts the element off at this point. A clip path counts always: its shape is not known here.
-  const clipped = (el, point) => {
-    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
-      const style = getComputedStyle(parent);
-      if (style.clipPath !== "none") return true;
-      if (style.overflowX !== "visible" && !holds(parent, point)) return true;
-    }
-    return false;
-  };
   const isMedia = (el) => el.tagName === "IMG" || el.tagName === "VIDEO";
 
   // The images and videos at the cursor, the front one first.
@@ -99,10 +90,11 @@
     // Media that the hit test left out counts only when it is in the same small part of the page as
     // the top element. This keeps out a picture that lies behind a dialog.
     const near = [...document.querySelectorAll("img, video")].filter(
-      (el) => !underCursor.includes(el) && holds(el, point) && shown(el) && !clipped(el, point) && sharedArea(el, top) <= 3 * area(el),
+      (el) => !underCursor.includes(el) && holds(el, point) && shown(el) && sharedArea(el, top) <= 3 * area(el),
     );
     if (!near.length) return hit;
     // A second hit test gives the true order, front first: for a moment, the left-out media takes pointer events.
+    // The hit test also leaves out media that an ancestor clips away at this point.
     const before = near.map((el) => [el, el.style.getPropertyValue("pointer-events"), el.style.getPropertyPriority("pointer-events")]);
     for (const el of near) el.style.setProperty("pointer-events", "auto", "important");
     const ordered = document.elementsFromPoint(point.x, point.y).filter((el) => hit.includes(el) || near.includes(el));
