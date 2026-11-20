@@ -5,6 +5,7 @@
 // data under the username). It checks the move to version 2, the OAuth flow of an MCP client, the
 // link of a Cosmos account to a signed-in user, and what is deleted when.
 
+import sharp from "sharp";
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -296,6 +297,41 @@ try {
     check("linked: the same access token now reads the vault", collections.json.result?.isError !== true && JSON.stringify(collections.json).includes("Agent references"), collections.json);
     const history = await rpc(ada.tokens.access_token, callTool("contact_sheet", { source: "history" }));
     check("linked: the sign-in reads the same history as the key URL", JSON.stringify(history.json).includes("old task"), history.json);
+  }
+
+  // ---- The vault page ----
+  {
+    const anonymous = browser();
+    check("vault page: no session gives 401 from the list", (await anonymous.get("/account/api/vault")).status === 401);
+    check("vault page: no session cannot delete", (await anonymous.post("/account/api/vault/delete", { id: "t000000000000001" })).status === 401);
+    const bob = await signInClient(`bob-${Date.now()}@example.com`);
+    const none = await bob.page.get("/account/api/vault");
+    check("vault page: a person with no linked browser gets the not-linked state", none.status === 200 && none.json.linked === false && none.json.items.length === 0, none.json);
+
+    const ids = ["t000000000000001", "t000000000000002", "t000000000000003"];
+    for (const [index, id] of ids.entries()) {
+      const body = await sharp({ create: { width: 320, height: 200, channels: 3, background: { r: 40 * index, g: 90, b: 200 } } }).png().toBuffer();
+      const meta = Buffer.from(JSON.stringify({ id, kind: "image", pageUrl: `https://example.com/page-${index}`, pageTitle: `Page ${index}` })).toString("base64url");
+      const saved = await fetch(`${base}/vault/upload`, { method: "POST", headers: { "x-device-key": keyA, "x-username": "henrikkvamme", "x-meta": meta, "content-type": "application/octet-stream" }, body });
+      if (saved.status !== 200) check(`vault page: test upload ${id}`, false, await saved.text());
+    }
+    const page = await fetch(`${base}/vault`);
+    const csp = page.headers.get("content-security-policy") ?? "";
+    check("vault page: the page is served with media-src 'self' and no inline script", page.status === 200 && csp.includes("media-src 'self'") && !/script-src[^;]*unsafe-inline/.test(csp) && (await page.text()).includes("/assets/vault.js"), csp);
+    check("vault page: its script is served", (await fetch(`${base}/assets/vault.js`)).status === 200);
+    const list = await ada.page.get("/account/api/vault");
+    const got = list.json.items ?? [];
+    check("vault page: the list is newest first with the source site", list.status === 200 && list.json.linked === true && list.json.total === 3 && got.map((item) => item.id).join() === [...ids].reverse().join() && got[0].site === "example.com" && got[0].pageUrl === "https://example.com/page-2", list.json);
+    check("vault page: the links of an item are relative and work", got[0]?.thumb?.startsWith("/vault/t/") && got[0].file.startsWith("/vault/f/") && (await fetch(base + got[0].thumb)).status === 200 && (await fetch(base + got[0].file)).status === 200, got[0]);
+    const rest = await ada.page.get(`/account/api/vault?after=${ids[2]}`);
+    check("vault page: after=<id> gives the items after it", rest.json.items?.map((item) => item.id).join() === [ids[1], ids[0]].join() && rest.json.next === null, rest.json);
+    check("vault page: another person sees none of it", (await bob.page.get("/account/api/vault")).json.total === 0);
+    check("vault page: another person cannot delete it", (await bob.page.post("/account/api/vault/delete", { id: ids[0] })).status === 404);
+    check("vault page: delete from another origin gives 403", (await ada.page.post("/account/api/vault/delete", { id: ids[0] }, { origin: "https://evil.example" })).status === 403);
+    check("vault page: a bad id gives 404", (await ada.page.post("/account/api/vault/delete", { id: "../x" })).status === 404);
+    const removed = await ada.page.post("/account/api/vault/delete", { id: ids[0] });
+    const after = await ada.page.get("/account/api/vault");
+    check("vault page: delete removes the item and its file", removed.status === 200 && after.json.total === 2 && !after.json.items.some((item) => item.id === ids[0]) && (await fetch(base + got[2].file)).status === 404, { removed, total: after.json.total });
   }
 
   // A second person cannot take the account without a ticket, and sees nothing of it.

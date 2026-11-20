@@ -94,3 +94,37 @@ h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em
 .card .brand { display: flex; align-items: center; gap: 10px; margin: 0 0 28px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
 .card .brand img { width: 24px; height: 24px; }
 .card code + h2 { margin-top: 14px; }
+
+/* ---- Vault ---- */
+.vault .top { display: flex; align-items: center; gap: 14px; max-width: 1280px; margin: 0 auto; padding: 20px 24px 0; }
+.vault .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); text-decoration: none; }
+.vault .brand img { width: 24px; height: 24px; }
+.vault .total { flex: 1; color: var(--muted); font-variant-numeric: tabular-nums; }
+.vault .top .btn { text-decoration: none; }
+.vault main { max-width: 1280px; margin: 0 auto; padding: 24px 24px 80px; }
+.vault .grid { display: flex; flex-wrap: wrap; gap: 16px 12px; }
+/* Rows of one height: each tile is as wide as its picture needs. The last row does not stretch. */
+.vault .grid::after { content: ""; flex: 1e4 1 0; }
+.ref { --ratio: 1.333; flex: var(--ratio) 1 calc(var(--ratio) * 210px); margin: 0; min-width: 0; }
+.ref .view { position: relative; display: block; width: 100%; border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.ref .view img { display: block; width: 100%; aspect-ratio: var(--ratio); object-fit: cover; object-position: top; opacity: 0; transition: opacity 0.2s; }
+.ref .view img.loaded { opacity: 1; }
+.ref .view:focus-visible, .ref .remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ref .play { position: absolute; left: 8px; bottom: 8px; width: 20px; height: 20px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; }
+.ref .play::after { content: ""; margin-left: 2px; border-left: 7px solid #fff; border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; }
+.ref figcaption { display: flex; align-items: center; gap: 8px; height: 30px; font-size: 12px; color: var(--muted); }
+.ref figcaption a, .ref figcaption span { color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref figcaption a:hover { text-decoration: underline; }
+.ref figcaption a, .ref figcaption span { flex: 0 1 auto; }
+.ref time { flex: 1 9999 0; min-width: 0; overflow: hidden; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ref .remove { flex: none; width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.12s; }
+.ref:hover .remove, .ref .remove:focus-visible, .ref.failed .remove { opacity: 1; }
+.ref .remove:hover { background: var(--surface); }
+.ref .remove svg { width: 14px; height: 14px; fill: none; stroke: var(--muted); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.ref .remove:hover svg, .ref.failed .remove svg { stroke: var(--bad); }
+.ref.skeleton { aspect-ratio: var(--ratio); margin-bottom: 30px; border-radius: var(--r); background: var(--surface); animation: pulse 1.4s ease-in-out infinite; }
+.vault .message { margin-top: 14vh; }
+.vault .message h1 { margin-bottom: 8px; }
+.vault #more { display: flex; justify-content: center; margin-top: 28px; }
+.vault #zoom video { max-width: 100%; max-height: 100%; border-radius: 12px; }
+@media (hover: none) { .ref .remove { opacity: 1; } }

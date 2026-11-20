@@ -497,7 +497,7 @@ if (PUBLIC_URL && authEnv.secret && ((authEnv.id && authEnv.key) || TEST_LOGIN))
     await store.save().catch((error: unknown) => log({ level: "error", event: "store_write_failed", error: (error as Error).message }));
     log({ event: "stale_users_removed", users: stale });
   }
-  accountPages = new AccountPages(auth, store, PUBLIC_URL, connectLimiter, log);
+  accountPages = new AccountPages(auth, store, PUBLIC_URL, connectLimiter, log, ownVault);
   log({ event: "auth_ready", testLogin: TEST_LOGIN });
 } else {
   log({ event: "auth_off", reason: "PUBLIC_URL, BETTER_AUTH_SECRET, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set" });

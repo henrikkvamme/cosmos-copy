@@ -10,6 +10,9 @@
 //   POST /account/api/connect      {ticket, confirm?}: show or confirm the link
 //   POST /account/api/unlink       remove the link to the Cosmos account
 //   POST /account/api/revoke       {clientId}: end the grant of one MCP client
+//   GET  /vault                    the references saved from other sites, as a grid
+//   GET  /account/api/vault        ?after=<id>: one page of those references, newest first
+//   POST /account/api/vault/delete {id}: delete one of them
 //
 // The cookie endpoints take JSON only and check the Origin header, so another site cannot call them.
 // Never log a ticket or a device key.
@@ -20,12 +23,14 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { ACCESS_TOKEN_SECONDS, type Auth, type SignedInUser } from "./auth.js";
 import type { RateLimiter } from "./ratelimit.js";
 import type { LinkStore } from "./store.js";
+import { fileUrl, OWN_ID_PATTERN, thumbUrl, type OwnVault } from "./ownvault.js";
 
 type Log = (fields: Record<string, unknown>) => void;
 
 const PAGES_DIR = fileURLToPath(new URL("../pages/", import.meta.url));
 const PAGE_PATHS = new Set(["/login", "/consent", "/account", "/connect", "/privacy"]);
-const ASSETS: Record<string, string> = { "/assets/account.js": "text/javascript; charset=utf-8" };
+const ASSETS = new Set(["/assets/account.js", "/assets/vault.js"]);
+const VAULT_PAGE_SIZE = 60;
 const MAX_BODY_BYTES = 4 * 1024;
 const DEVICE_KEY_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 const TICKET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
@@ -38,10 +43,13 @@ const SECURITY_HEADERS: Record<string, string> = {
   "cross-origin-opener-policy": "same-origin",
   "cache-control": "no-store",
 };
+/** The vault page also plays the saved videos. */
+const VAULT_HEADERS = { ...SECURITY_HEADERS, "content-security-policy": SECURITY_HEADERS["content-security-policy"]!.replace("img-src 'self';", "img-src 'self'; media-src 'self';") };
 
 export class AccountPages {
   private readonly html = readFileSync(PAGES_DIR + "account.html");
-  private readonly script = readFileSync(PAGES_DIR + "account.js");
+  private readonly vaultHtml = readFileSync(PAGES_DIR + "vault.html");
+  private readonly scripts = new Map([...ASSETS].map((path) => [path, readFileSync(PAGES_DIR + path.slice("/assets/".length))]));
 
   constructor(
     private readonly auth: Auth,
@@ -49,6 +57,7 @@ export class AccountPages {
     private readonly publicUrl: string,
     private readonly limiter: RateLimiter,
     private readonly log: Log,
+    private readonly vault: OwnVault,
   ) {}
 
   private json(res: ServerResponse, status: number, value: unknown): void {
@@ -90,8 +99,13 @@ export class AccountPages {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS }).end(this.html);
       return true;
     }
-    if (ASSETS[path]) {
-      res.writeHead(200, { "content-type": ASSETS[path], "cache-control": "no-cache", "x-content-type-options": "nosniff" }).end(this.script);
+    if (path === "/vault") {
+      if (req.method !== "GET" && req.method !== "HEAD") return this.json(res, 405, { error: "Method not allowed." }), true;
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", ...VAULT_HEADERS }).end(this.vaultHtml);
+      return true;
+    }
+    if (ASSETS.has(path)) {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-cache", "x-content-type-options": "nosniff" }).end(this.scripts.get(path));
       return true;
     }
 
@@ -135,6 +149,39 @@ export class AccountPages {
       return true;
     }
 
+    if (name === "vault") {
+      if (req.method !== "GET") return this.json(res, 405, { error: "Method not allowed." }), true;
+      const user = await this.auth.user(req);
+      if (!user) return this.json(res, 401, { error: "Not signed in." }), true;
+      const owner = this.store.accountOfUser(user.id)?.userId;
+      if (!owner) return this.json(res, 200, { linked: false, total: 0, items: [], next: null }), true;
+      const all = await this.vault.list(owner);
+      const after = new URL(req.url ?? "/", "http://localhost").searchParams.get("after");
+      const start = after ? all.findIndex((item) => item.id === after) + 1 : 0;
+      const page = all.slice(start, start + VAULT_PAGE_SIZE);
+      this.json(res, 200, {
+        linked: true,
+        total: all.length,
+        next: start + page.length < all.length ? page[page.length - 1]!.id : null,
+        // Relative links: the page is on this origin.
+        items: page.map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          mime: item.mime,
+          width: item.width,
+          height: item.height,
+          site: item.site,
+          pageUrl: item.pageUrl,
+          pageTitle: item.pageTitle,
+          description: item.description,
+          savedAt: item.savedAt,
+          thumb: thumbUrl("", owner, item),
+          file: fileUrl("", owner, item),
+        })),
+      });
+      return true;
+    }
+
     if (req.method !== "POST") return this.json(res, 405, { error: "Method not allowed. Use POST." }), true;
     const user = await this.signedIn(req, res);
     if (!user) return true;
@@ -172,6 +219,15 @@ export class AccountPages {
       }
       this.log({ event: "user_unlinked", changed });
       return this.json(res, 200, { ok: true }), true;
+    }
+
+    if (name === "vault/delete") {
+      const owner = this.store.accountOfUser(user.id)?.userId;
+      const id = body.id;
+      if (!owner || typeof id !== "string" || !OWN_ID_PATTERN.test(id)) return this.json(res, 404, { error: "Not found." }), true;
+      const removed = await this.vault.remove(owner, id);
+      if (removed) this.log({ event: "vault_removed" });
+      return this.json(res, removed ? 200 : 404, removed ? { ok: true } : { error: "Not found." }), true;
     }
 
     if (name === "revoke") {
