@@ -75,34 +75,42 @@
     const parent = commonParent(a, b);
     return !parent || parent === document.body || parent === document.documentElement ? Infinity : area(parent);
   };
-  // True when two elements take about the same place, as a video and its poster image do.
-  const samePlace = (a, b) => {
-    const ra = a.getBoundingClientRect();
-    const rb = b.getBoundingClientRect();
-    const w = Math.min(ra.right, rb.right) - Math.max(ra.left, rb.left);
-    const h = Math.min(ra.bottom, rb.bottom) - Math.max(ra.top, rb.top);
-    return w > 0 && h > 0 && (w * h) / (area(a) + area(b) - w * h) > 0.6;
+  // True when an ancestor cuts the element off at this point. A clip path counts always: its shape is not known here.
+  const clipped = (el, point) => {
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (style.clipPath !== "none") return true;
+      if (style.overflowX !== "visible" && !holds(parent, point)) return true;
+    }
+    return false;
   };
+  const isMedia = (el) => el.tagName === "IMG" || el.tagName === "VIDEO";
 
-  // The images and videos at the cursor, the one to copy first.
+  // The images and videos at the cursor, the front one first.
   // elementsFromPoint leaves out an element with pointer-events: none. Many sites play the video of a
   // card in such a layer over the poster image, so the hit test alone finds only the poster.
   function mediaAtCursor(underCursor) {
     const top = underCursor[0];
-    if (!top) return [];
+    // A frame or a canvas on top covers the media behind it.
+    if (!top || isFrame(top) || top.tagName === "CANVAS") return [];
     const box = top.getBoundingClientRect();
-    const point = mouse && !isFrame(top) ? mouse : { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-    const hit = underCursor.filter((el) => (el.tagName === "IMG" || el.tagName === "VIDEO") && shown(el));
+    const point = mouse ?? { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    const hit = underCursor.filter((el) => isMedia(el) && shown(el));
     // Media that the hit test left out counts only when it is in the same small part of the page as
     // the top element. This keeps out a picture that lies behind a dialog.
     const near = [...document.querySelectorAll("img, video")].filter(
-      (el) => !hit.includes(el) && holds(el, point) && shown(el) && sharedArea(el, top) <= 3 * area(el),
+      (el) => !underCursor.includes(el) && holds(el, point) && shown(el) && !clipped(el, point) && sharedArea(el, top) <= 3 * area(el),
     );
-    const found = [...hit, ...near];
-    // A video that plays in the place of the first image is what the user sees: it goes first.
-    const first = found[0];
-    const video = first?.tagName === "IMG" && found.find((el) => el.tagName === "VIDEO" && mediaSource(el) && samePlace(el, first));
-    return video ? [video, ...found.filter((el) => el !== video)] : found;
+    if (!near.length) return hit;
+    // A second hit test gives the true order, front first: for a moment, the left-out media takes pointer events.
+    const before = near.map((el) => [el, el.style.getPropertyValue("pointer-events"), el.style.getPropertyPriority("pointer-events")]);
+    for (const el of near) el.style.setProperty("pointer-events", "auto", "important");
+    const ordered = document.elementsFromPoint(point.x, point.y).filter((el) => hit.includes(el) || near.includes(el));
+    for (const [el, value, priority] of before) {
+      if (value) el.style.setProperty("pointer-events", value, priority);
+      else el.style.removeProperty("pointer-events");
+    }
+    return ordered;
   }
 
   function findTarget() {
@@ -115,7 +123,7 @@
     const atCursor = mediaAtCursor(underCursor);
     // A frame or a canvas draws its own content: there is no file to copy, and a picture from
     // another part of the page is not what the user points at.
-    if (!atCursor.length && (isFrame(underCursor[0]) || underCursor[0]?.tagName === "CANVAS")) {
+    if (isFrame(underCursor[0]) || underCursor[0]?.tagName === "CANVAS") {
       return { error: "Live content has no image or video to copy. Hover an image or a video and try again." };
     }
     // 4. Nothing at the cursor: the largest one in view.
