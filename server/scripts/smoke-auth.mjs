@@ -204,6 +204,7 @@ try {
     const account = stored.accounts[COSMOS_ID];
     check("migration: links.json is version 2 and keyed by the Cosmos user id", stored.version === 2 && account?.username === "henrikkvamme" && !stored.accounts.henrikkvamme, Object.keys(stored.accounts));
     check("migration: the device and the token are kept, no user is linked", account?.devices.length === 1 && account.token?.exp === tokenExp && Array.isArray(account.users) && account.users.length === 0, account && { devices: account.devices.length, users: account.users });
+    check("migration: the username map is gone after the move", stored.legacy === undefined, stored.legacy);
     check("migration: links.json keeps mode 600", ((await stat(join(dataDir, "links.json"))).mode & 0o777) === 0o600);
     check("migration: the history file moved to the user id", (await exists(historyFile(COSMOS_ID))) && !(await exists(historyFile("henrikkvamme"))) && (await readFile(historyFile(COSMOS_ID), "utf8")) === oldHistory);
     check("migration: the history images moved to the user id", (await exists(join(imageDir(COSMOS_ID), "old.jpg"))) && !(await exists(imageDir("henrikkvamme"))));
@@ -354,6 +355,52 @@ try {
     check("delete account: the session is over", me.json.user === null, me.json);
     const call = await rpc(ada.tokens.access_token, callTool("list_collections"));
     check("delete account: a token that is still valid gives 401", call.status === 401, { status: call.status, json: call.json });
+  }
+
+  // The move from version 1 was cut off after links.json was written: the next start takes it up.
+  {
+    const { LinkStore } = await import(join(SERVER_DIR, "dist/store.js"));
+    const { PickStore } = await import(join(SERVER_DIR, "dist/picks.js"));
+    const dir = await mkdtemp(join(tmpdir(), "cosmos-mcp-resume-"));
+    const quiet = () => undefined;
+    await writeFile(join(dir, "links.json"), JSON.stringify({ version: 2, legacy: { olduser: "77" }, accounts: { 77: { username: "olduser", userId: "77", devices: [{ keyHash: sha("k"), name: "B", linkedAt: "2026-11-01T10:00:00.000Z", lastSeen: "2026-11-01T10:00:00.000Z" }], users: [] } } }), { mode: 0o600 });
+    await mkdir(join(dir, "history"), { recursive: true });
+    await writeFile(join(dir, "history", "olduser.json"), "{}");
+    await writeFile(join(dir, "picks.json"), JSON.stringify({ version: 1, sessions: {}, boards: { abc: { username: "olduser", createdAt: new Date().toISOString(), task: "t", variants: [] } } }));
+    const links = new LinkStore(dir);
+    await links.load(quiet);
+    const picks = new PickStore(dir);
+    const complete = await picks.load(quiet, links.legacyOwners);
+    if (complete) await links.finishMigration();
+    const after = JSON.parse(await readFile(join(dir, "links.json"), "utf8"));
+    const board = JSON.parse(await readFile(join(dir, "picks.json"), "utf8")).boards.abc;
+    check("resume: a cut-off move is finished at the next start", complete && (await exists(join(dir, "history", "77.json"))) && !(await exists(join(dir, "history", "olduser.json"))) && after.legacy === undefined, { complete, legacy: after.legacy });
+    check("resume: a board of the username gets the user id as owner", board?.owner === "77" && board.username === undefined, board);
+
+    // A device links to an account that the clean-up of the same call deleted.
+    const moved = new LinkStore(dir);
+    await moved.load(quiet);
+    const token = { token: "a.b.c", exp: Math.floor(Date.now() / 1000) + 86400 };
+    moved.link({ username: "first", userId: "1", token, deviceKey: "d".repeat(43), deviceName: "D" });
+    moved.unlink("d".repeat(43));
+    const relinked = moved.link({ username: "first", userId: "1", token, deviceKey: "d".repeat(43), deviceName: "D" });
+    check("link: a device can link to an account that was just deleted", moved.account("1") === relinked.account && moved.authenticate("first", "d".repeat(43), quiet) === relinked.account);
+
+    // Two confirms for one user, and the first write fails: the second link stays the only one.
+    moved.link({ username: "second", userId: "2", token, deviceKey: "e".repeat(43), deviceName: "E" });
+    await moved.save();
+    const first = moved.startConnect("d".repeat(43)).ticket;
+    const second = moved.startConnect("e".repeat(43)).ticket;
+    const realWrite = moved.writeFile.bind(moved);
+    let fail = true;
+    moved.writeFile = () => (fail ? ((fail = false), Promise.reject(new Error("disk full"))) : realWrite());
+    const results = await Promise.allSettled([moved.confirmConnect(first, "u1"), moved.confirmConnect(second, "u1")]);
+    check(
+      "connect: a failed write does not undo a later confirm",
+      results[0].status === "rejected" && results[1].status === "fulfilled" && moved.accountOfUser("u1")?.userId === "2" && moved.account("1").users.length === 0,
+      { results: results.map((r) => r.status), on: moved.accountOfUser("u1")?.userId },
+    );
+    await rm(dir, { recursive: true, force: true });
   }
 
   // Logs.

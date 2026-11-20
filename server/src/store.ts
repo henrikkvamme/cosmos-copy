@@ -44,6 +44,12 @@ interface FileData {
   version: 2;
   /** Key: the Cosmos user id. */
   accounts: Record<string, Account>;
+  /**
+   * Username (lower case) to Cosmos user id of the accounts of a version 1 file, while their pick
+   * data has not moved to the user id yet. It stays in the file until the move is complete, so a
+   * crash or a failed move is taken up again at the next start.
+   */
+  legacy?: Record<string, string>;
 }
 
 /** A connect ticket: the right to link the account of one device to the user who confirms. */
@@ -95,6 +101,7 @@ export class LinkStore {
   writable = false;
   private data: FileData = { version: 2, accounts: {} };
   private writes: Promise<void> = Promise.resolve();
+  private confirms: Promise<void> = Promise.resolve();
   /** Connect tickets by the SHA-256 hash of the ticket. In memory only: a restart ends them. */
   private readonly tickets = new Map<string, Ticket>();
   /**
@@ -129,7 +136,7 @@ export class LinkStore {
       return;
     }
     try {
-      const parsed = JSON.parse(text) as { version?: unknown; accounts?: Record<string, Account> };
+      const parsed = JSON.parse(text) as { version?: unknown; accounts?: Record<string, Account>; legacy?: Record<string, string> };
       if ((parsed?.version !== 1 && parsed?.version !== 2) || typeof parsed.accounts !== "object" || parsed.accounts === null) {
         throw new Error("unknown format");
       }
@@ -143,7 +150,10 @@ export class LinkStore {
         // Version 1 kept the pick data under the username.
         if (parsed.version === 1) this.legacyOwners.set(account.username.toLowerCase(), account.userId);
       }
-      this.data = { version: 2, accounts };
+      if (parsed.version === 2 && parsed.legacy && typeof parsed.legacy === "object") {
+        for (const [name, userId] of Object.entries(parsed.legacy)) if (typeof userId === "string") this.legacyOwners.set(name, userId);
+      }
+      this.data = { version: 2, accounts, ...(this.legacyOwners.size ? { legacy: Object.fromEntries(this.legacyOwners) } : {}) };
       log({ event: "store_loaded", accounts: Object.keys(accounts).length, version: parsed.version });
       if (parsed.version === 1 && this.writable) await this.save();
     } catch (error) {
@@ -152,6 +162,14 @@ export class LinkStore {
       log({ level: "error", event: "store_broken", movedTo: aside, error: (error as Error).message });
       await rename(this.file, aside).catch(() => undefined);
     }
+  }
+
+  /** The pick data of the version 1 accounts has moved: forget the usernames they were stored under. */
+  async finishMigration(): Promise<void> {
+    if (!this.data.legacy) return;
+    delete this.data.legacy;
+    this.legacyOwners.clear();
+    await this.save();
   }
 
   /** Writes the current data. Writes run one after the other. */
@@ -263,9 +281,14 @@ export class LinkStore {
     }
 
     this.removeDeviceEverywhere(keyHash, key);
+    // Read again: the clean-up above deletes an account with no device and no user, and this one can be that.
+    account = this.data.accounts[key];
     if (!account) {
       account = { username: input.username, userId: input.userId, devices: [], users: [] };
       this.data.accounts[key] = account;
+      // It is back, so its data must stay.
+      const pending = this.dropped.indexOf(key);
+      if (pending >= 0) this.dropped.splice(pending, 1);
     }
     account.username = input.username;
 
@@ -325,7 +348,14 @@ export class LinkStore {
    * when the write fails, and the link is then taken back. A user has one account: an older
    * link of the user is removed.
    */
-  async confirmConnect(ticket: string, authUserId: string): Promise<Account | undefined> {
+  confirmConnect(ticket: string, authUserId: string): Promise<Account | undefined> {
+    // One at a time: a failed write takes its change back, and that must not undo a later confirm.
+    const run = this.confirms.then(() => this.confirmOne(ticket, authUserId));
+    this.confirms = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async confirmOne(ticket: string, authUserId: string): Promise<Account | undefined> {
     const account = this.peekConnect(ticket);
     this.tickets.delete(hashKey(ticket));
     if (!account) return undefined;

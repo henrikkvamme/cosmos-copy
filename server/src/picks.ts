@@ -179,14 +179,16 @@ export class PickStore {
   }
 
   /** `legacyOwners`: username in lower case to Cosmos user id, for data that was stored under the username. */
-  async load(log: Log, legacyOwners: Map<string, string> = new Map()): Promise<void> {
-    await this.moveLegacyFiles(log, legacyOwners);
+  /** Returns true when all data of the legacy owners is under their user id now. */
+  async load(log: Log, legacyOwners: Map<string, string> = new Map()): Promise<boolean> {
+    let complete = await this.moveLegacyFiles(log, legacyOwners);
     let text: string;
     try {
       text = await readFile(this.file, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") log({ level: "error", event: "picks_unreadable", error: (error as Error).message });
-      return;
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return complete;
+      log({ level: "error", event: "picks_unreadable", error: (error as Error).message });
+      return false;
     }
     try {
       const parsed = JSON.parse(text) as PicksFile;
@@ -206,7 +208,12 @@ export class PickStore {
         }
       }
       this.data = parsed;
-      if (moved) await this.save().catch((error: unknown) => log({ level: "error", event: "picks_write_failed", error: (error as Error).message }));
+      if (moved) {
+        await this.save().catch((error: unknown) => {
+          complete = false;
+          log({ level: "error", event: "picks_write_failed", error: (error as Error).message });
+        });
+      }
       log({ event: "picks_loaded", sessions: Object.keys(parsed.sessions).length, boards: Object.keys(parsed.boards).length });
     } catch (error) {
       const aside = `${this.file}.broken-${Date.now()}`;
@@ -214,6 +221,7 @@ export class PickStore {
       await rename(this.file, aside).catch(() => undefined);
     }
     await this.prune(log);
+    return complete;
   }
 
   save(): Promise<void> {
@@ -221,7 +229,8 @@ export class PickStore {
   }
 
   /** Moves the history and the result images of a username to the Cosmos user id. An existing target stays. */
-  private async moveLegacyFiles(log: Log, legacyOwners: Map<string, string>): Promise<void> {
+  private async moveLegacyFiles(log: Log, legacyOwners: Map<string, string>): Promise<boolean> {
+    let complete = true;
     for (const [name, owner] of legacyOwners) {
       const moves: [string, string][] = [
         [this.historyFile(name), this.historyFile(owner)],
@@ -233,10 +242,14 @@ export class PickStore {
         if (!(await exists(from)) || (await exists(to))) continue;
         await rename(from, to).then(
           () => log({ event: "picks_owner_moved" }),
-          (error: unknown) => log({ level: "error", event: "picks_owner_move_failed", error: (error as Error).message }),
+          (error: unknown) => {
+            complete = false;
+            log({ level: "error", event: "picks_owner_move_failed", error: (error as Error).message });
+          },
         );
       }
     }
+    return complete;
   }
 
   /** Deletes all data of an owner: sessions, boards with their screenshots, the history and its images. */

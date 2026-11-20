@@ -453,7 +453,10 @@ httpServer.setTimeout(REQUEST_TIMEOUT_MS + 5_000);
 // An account with no device and no user is deleted. Its picker links, canvases and history go with it.
 store.onAccountDeleted = (userId) => void picks.deleteOwner(userId, log);
 await store.load(log);
-await picks.load(log, store.legacyOwners);
+// The usernames of a version 1 file stay in links.json until their pick data has moved.
+if (await picks.load(log, store.legacyOwners)) {
+  await store.finishMigration().catch((error: unknown) => log({ level: "error", event: "store_write_failed", error: (error as Error).message }));
+}
 
 const authEnv = { secret: process.env.BETTER_AUTH_SECRET ?? "", id: process.env.GOOGLE_CLIENT_ID ?? "", key: process.env.GOOGLE_CLIENT_SECRET ?? "" };
 if (PUBLIC_URL && authEnv.secret && ((authEnv.id && authEnv.key) || TEST_LOGIN)) {
