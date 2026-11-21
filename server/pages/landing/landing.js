@@ -127,6 +127,7 @@
           for (const entry of entries) {
             if (!entry.isIntersecting) continue;
             scene.dataset.step = entry.target.dataset.step;
+            scene.classList.add("go"); // the copy in step 1 plays from here, not at page load
             for (const step of steps) step.classList.toggle("on", step === entry.target);
           }
         },
@@ -138,16 +139,18 @@
     watch();
   }
 
-  // ---- The hero video: the same view as the still, with moving cloud. It loads after the page, fades in over
-  // the still, and stops while the hero is out of view. Not with reduced motion or data saving. ----
-  const film = document.getElementById("film");
+  // ---- The background videos of the hero and the closing: the same view as the still, with moving light.
+  // Each loads when its part comes into view, fades in over the still, and stops while out of view.
+  // Not with reduced motion or data saving. ----
   if (!still && !navigator.connection?.saveData && "IntersectionObserver" in window) {
-    film.addEventListener("playing", () => film.classList.add("on"), { once: true });
-    new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) return film.pause();
-      if (!film.src) film.src = film.dataset.src;
-      film.play().catch(() => {}); // a browser that refuses autoplay keeps the still
-    }).observe(hero);
+    for (const film of document.querySelectorAll("video[data-src]")) {
+      film.addEventListener("playing", () => film.classList.add("on"), { once: true });
+      new IntersectionObserver(([entry]) => {
+        if (!entry.isIntersecting) return film.pause();
+        if (!film.src) film.src = film.dataset.src;
+        film.play().catch(() => {}); // a browser that refuses autoplay keeps the still
+      }).observe(film.closest("section, header"));
+    }
   }
 
   // ---- The install prompt: the button copies it. A page without https has no clipboard API, so the
@@ -161,6 +164,7 @@
     try {
       await navigator.clipboard.writeText(prompt.textContent);
     } catch {
+      prompt.closest("details").open = true; // hidden text cannot be selected
       const range = document.createRange();
       range.selectNodeContents(prompt);
       const selection = getSelection();

@@ -123,38 +123,52 @@
 </section>
 
 <section class="section" id="free">
-  <div class="free">
-    <div class="free-main" data-reveal>
-      <p class="zero"><b>$0</b><span>No plan. No usage fees.</span></p>
-      <div class="head">
-        <h2>Free with your own agent</h2>
-        <p>TasteRef runs no AI model on its server. Your agent does all the AI work on the subscription you already pay for.</p>
-      </div>
+  <div class="free" data-reveal>
+    <p class="zero" aria-label="0 dollars"><span>$</span>0</p>
+    <dl class="bill">
+      <div class="cap"><dt>What it costs</dt><dd>USD per month</dd></div>
+      <div><dt>Reference storage</dt><dd>0.00</dd></div>
+      <div><dt>MCP connection</dt><dd>0.00</dd></div>
+      <div><dt>Browser extension</dt><dd>0.00</dd></div>
+      <div class="yours"><dt>AI model</dt><dd>Your own agent subscription</dd></div>
+      <div class="total"><dt>Total</dt><dd>0.00</dd></div>
+    </dl>
+    <hr>
+    <div class="free-say">
+      <h2>Free with your own agent</h2>
+      <p>TasteRef runs no AI model on its server. Your agent does all the AI work on the subscription you already pay for.</p>
     </div>
-    <div class="flow" data-reveal>
-      <div class="node lit"><span class="chip"><span class="dot"></span>AI work</span><h3>Your agent</h3><p>Claude Code, Codex or another agent. It runs on your subscription.</p></div>
-      <div class="wire" aria-hidden="true"><i></i><i></i><i></i><i></i><span>MCP</span></div>
-      <div class="node"><span class="chip off">Storage only</span><h3>TasteRef</h3><p>Stores your references. Runs no AI model.</p></div>
-    </div>
-    <ul class="free-points" data-reveal>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10v10H7zM10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4M4 4l16 16"/></svg><h3>No AI on the server</h3><p>The TasteRef server stores references and connects through MCP. It runs no AI model and adds no usage fees.</p></li>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM15.5 15.5L20 20M8 10.5h5M8 8h3"/></svg><h3>Your agent indexes the vault</h3><p>Your agent writes descriptions to make your vault searchable. It uses the subscription you already pay for.</p></li>
-      <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11V8a5 5 0 0 1 10 0v3M5.5 11h13v9h-13zM12 14.5v2.5"/></svg><h3>You control your data</h3><p>Only you and the agents you connect can read your vault. Delete any reference or your account at any time.</p></li>
+    <ul class="free-notes">
+      <li><h3>Your agent indexes the vault</h3><p>Your agent writes descriptions to make your vault searchable. It uses the subscription you already pay for.</p></li>
+      <li><h3>You control your data</h3><p>Only you and the agents you connect can read your vault. Delete any reference or your account at any time.</p></li>
     </ul>
   </div>
 </section>
 
 <section class="section" id="install">
-  <div class="head" data-reveal>
-    <h2>Install TasteRef with your agent</h2>
-    <p>The Chrome Web Store version is not out yet. Copy this prompt and paste it into your coding agent to install TasteRef.</p>
-  </div>
-  <div class="card" data-reveal>
-    <div class="card-bar">
-      <span class="card-label"><span class="dot"></span>Install prompt</span>
-      <button class="pill primary" id="copy" type="button" data-done="Copied"><span id="copy-label">Copy prompt</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path class="copy-icon" d="M5.5 5.5h7v7h-7zM3.5 10.5v-7h7"/><path class="done-icon" d="M3.5 8.5l3 3 6-7"/></svg></button>
+  <div class="install" data-reveal>
+    <div class="install-say">
+      <h2>Install TasteRef with your agent</h2>
+      <p>The Chrome Web Store version is not out yet. Copy this prompt and paste it into your coding agent to install TasteRef.</p>
+      <div class="actions left">
+        <button class="pill primary" id="copy" type="button" data-done="Copied"><span id="copy-label">Copy prompt</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path class="copy-icon" d="M5.5 5.5h7v7h-7zM3.5 10.5v-7h7"/><path class="done-icon" d="M3.5 8.5l3 3 6-7"/></svg></button>
+        <a class="pill" href="https://github.com/henrikkvamme/cosmos-copy"><span>View on GitHub</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12l8-8M5.5 4H12v6.5"/></svg></a>
+      </div>
+      <p class="need">You need macOS, a supported browser (Chrome, Brave or Ardia), Xcode Command Line Tools, and a coding agent with terminal access.</p>
     </div>
-    <pre id="prompt" tabindex="0">Install TasteRef for me on this Mac. Do what you can yourself. Ask me only when needed, tell me what to click, and confirm each step before the next.
+    <ol class="plan">
+      <li><span>Checks for Chrome, Brave or Ardia</span><b>Agent</b></li>
+      <li><span>Checks for Xcode Command Line Tools</span><b>Agent</b></li>
+      <li><span>Clones the repository to ~/.tasteref</span><b>Agent</b></li>
+      <li><span>Builds and registers the clipboard helper</span><b>Agent</b></li>
+      <li class="you"><span>Load the unpacked extension in Developer mode</span><b>You</b></li>
+      <li class="you"><span>Sign in with a free cosmos.so account</span><b>You</b></li>
+      <li class="you"><span>Click Connect account and paste the prompt</span><b>You</b></li>
+      <li class="you"><span>Press Option+Shift+C on an image and paste</span><b>You</b></li>
+    </ol>
+    <details class="full">
+      <summary>View full prompt</summary>
+      <pre id="prompt" tabindex="0">Install TasteRef for me on this Mac. Do what you can yourself. Ask me only when needed, tell me what to click, and confirm each step before the next.
 
 1. Check Chrome, Brave, and Ardia. Use my preferred browser if known, or ask if multiple are installed.
 2. Check swiftc. If missing, run xcode-select --install and wait for me.
@@ -164,19 +178,12 @@
 6. Have me sign in at cosmos.so (free account) in that browser.
 7. Have me open the TasteRef popup, click the gear, click "Connect account", sign in with Google, click "Copy setup prompt", and paste it here for MCP. Never print, log, or share its private key.
 8. Have me hover an image, press Option+Shift+C, and paste it here.</pre>
-  </div>
-  <ul class="points" data-reveal>
-    <li><h3>What your agent does</h3><p>Your agent clones the repository to ~/.tasteref and builds the clipboard helper. It registers the helper with your browser and connects to your vault.</p></li>
-    <li><h3>What needs you</h3><p>You load the unpacked extension in Developer mode and sign in to Cosmos. Then you click Connect account in the popup and paste the setup prompt back.</p></li>
-    <li><h3>What you need first</h3><p>You need macOS, Chrome, Brave or Ardia, and Xcode Command Line Tools. You also need a coding agent with terminal access, such as Claude Code or Codex.</p></li>
-  </ul>
-  <div class="actions left">
-    <a class="pill" href="https://github.com/henrikkvamme/cosmos-copy"><span>View on GitHub</span><svg class="arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 12l8-8M5.5 4H12v6.5"/></svg></a>
+    </details>
   </div>
 </section>
 
 <section class="closing" id="closing">
-  <div class="layer back"><img src="/assets/landing/hero-aurora.webp" srcset="/assets/landing/hero-aurora.webp 1536w, /assets/landing/hero-aurora-2x.webp 2880w" sizes="100vw" width="1536" height="1024" alt="" loading="lazy"></div>
+  <div class="layer back"><img src="/assets/landing/closing-aurora.webp" width="1632" height="1216" alt="" loading="lazy"><video data-src="/assets/landing/closing-aurora.mp4" width="1632" height="1216" muted loop playsinline preload="none" aria-hidden="true"></video></div>
   <div class="layer wisps"><i></i></div>
   <h2 data-reveal>Start building your vault</h2>
   <p data-reveal>Copy the install prompt and let your coding agent set up TasteRef.</p>
