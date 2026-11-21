@@ -97,6 +97,15 @@
         tilted.style.setProperty("--ry", "0");
       });
 
+      // The aurora of the closing gets brighter under the pointer.
+      closing.addEventListener("pointermove", (event) => {
+        const rect = closing.getBoundingClientRect();
+        closing.style.setProperty("--px", `${Math.round(event.clientX - rect.left)}px`);
+        closing.style.setProperty("--py", `${Math.round(event.clientY - rect.top)}px`);
+        closing.classList.add("lit");
+      });
+      closing.addEventListener("pointerleave", () => closing.classList.remove("lit"));
+
       // A button leans toward the pointer and springs back.
       for (const pill of document.querySelectorAll(".pill")) {
         pill.addEventListener("pointermove", (event) => {
