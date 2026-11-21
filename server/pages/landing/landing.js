@@ -156,7 +156,8 @@
       film.addEventListener("playing", () => film.classList.add("on"), { once: true });
       new IntersectionObserver(([entry]) => {
         if (!entry.isIntersecting) return film.pause();
-        if (!film.src) film.src = film.dataset.src;
+        // The large file is for a panel wider than the small video (1632 px) in device pixels.
+        if (!film.src) film.src = innerWidth * devicePixelRatio > 1700 ? film.dataset.srcLarge : film.dataset.src;
         film.play().catch(() => {}); // a browser that refuses autoplay keeps the still
       }).observe(film.closest("section, header"));
     }
