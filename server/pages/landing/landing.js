@@ -105,19 +105,6 @@
         closing.classList.add("lit");
       });
       closing.addEventListener("pointerleave", () => closing.classList.remove("lit"));
-
-      // A button leans toward the pointer and springs back.
-      for (const pill of document.querySelectorAll(".pill")) {
-        pill.addEventListener("pointermove", (event) => {
-          const rect = pill.getBoundingClientRect();
-          pill.style.setProperty("--tx", `${((event.clientX - rect.left - rect.width / 2) * 0.22).toFixed(1)}px`);
-          pill.style.setProperty("--ty", `${((event.clientY - rect.top - rect.height / 2) * 0.3).toFixed(1)}px`);
-        });
-        pill.addEventListener("pointerleave", () => {
-          pill.style.setProperty("--tx", "0px");
-          pill.style.setProperty("--ty", "0px");
-        });
-      }
     }
     measure();
   }
@@ -192,16 +179,101 @@
     }, 2000);
   });
 
-  // ---- The copy demo: Option+Shift+C on this page, or a click on the keycaps. The picture under the
-  // pointer gets the lime frame, else the hero does, and a toast shows. This script copies nothing. ----
+  // ---- The copy demo: Option+Shift+C on this page, a tap on a picture of the wall, or a click on the keycaps.
+  // The picture under the pointer gets the lime frame, else the hero does. The picture then flies into the tray,
+  // and the accent of the page moves toward the colour of the picks. This script copies and saves nothing. ----
   const keys = document.getElementById("keys");
   const [optionKey, shiftKey, cKey] = keys.querySelectorAll("kbd");
-  const toast = document.getElementById("toast");
-  const toastImage = document.getElementById("toast-img");
+  const tray = document.getElementById("tray");
+  const trayPicks = document.getElementById("tray-picks");
+  const LIME = 70; // the hue of the accent and of the light in the hero, in degrees
+  const KEEP = 5; // the tray shows the last picks
+  const picks = []; // { x, y }: the hue of each pick as a point on the colour circle, null for a grey picture
   let hovered = null;
-  let toastTimer = 0;
   document.addEventListener("pointerover", (event) => {
     hovered = event.target instanceof Element ? event.target.closest(".wall figure, .ref") : null;
+  });
+
+  // The colour of a picture: the mean of its strong colours, as a point on the colour circle. Greys do not count.
+  function hueOf(picture) {
+    const size = 64; // small, but a thin coloured line still counts
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(picture, 0, 0, size, size);
+    const { data } = context.getImageData(0, 0, size, size);
+    let x = 0;
+    let y = 0;
+    let weight = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), spread = max - min;
+      if (spread < 0.25 || max < 0.35) continue;
+      const hue = max === r ? ((g - b) / spread) % 6 : max === g ? (b - r) / spread + 2 : (r - g) / spread + 4;
+      x += Math.cos((hue * Math.PI) / 3) * spread;
+      y += Math.sin((hue * Math.PI) / 3) * spread;
+      weight += spread;
+    }
+    return weight < 3 ? null : { x: x / weight, y: y / weight };
+  }
+
+  // Each pick counts two times the pick before it, so the page follows the visitor and older picks still pull a little.
+  function restyle() {
+    let x = 0;
+    let y = 0;
+    picks.forEach((pick, i) => {
+      if (!pick) return;
+      x += pick.x * 2 ** i;
+      y += pick.y * 2 ** i;
+    });
+    if (!x && !y) return root.classList.toggle("tasted", picks.length > 0);
+    const hue = Math.round(((Math.atan2(y, x) * 180) / Math.PI + 360) % 360);
+    // The short way round the circle, so lime to orange does not pass through blue.
+    const turn = ((hue - LIME + 540) % 360) - 180;
+    root.style.setProperty("--pick", `hsl(${hue} 78% 56%)`);
+    root.style.setProperty("--turn", `${turn}deg`);
+    root.classList.add("tasted");
+  }
+
+  function pick(target) {
+    const picture = target === hero ? hero.querySelector(".back img") : target.querySelector("img");
+    if (!picture.complete || !picture.naturalWidth) return;
+    picks.push(hueOf(picture));
+    const thumb = new Image(40, 40);
+    thumb.src = picture.currentSrc || picture.src;
+    thumb.alt = "";
+    trayPicks.append(thumb);
+    while (trayPicks.children.length > KEEP) trayPicks.firstElementChild.remove();
+    tray.classList.add("in");
+    tray.setAttribute("aria-hidden", "false");
+    restyle();
+    if (still || !thumb.animate) return;
+    // The picture flies from its place to its slot in the tray.
+    const from = (target === hero ? keys : picture).getBoundingClientRect();
+    const to = thumb.getBoundingClientRect();
+    const flyer = new Image();
+    flyer.src = thumb.src;
+    flyer.className = "flyer";
+    flyer.width = to.width;
+    flyer.height = to.height;
+    document.body.append(flyer);
+    thumb.style.opacity = "0";
+    const start = `translate(${from.left}px, ${from.top}px) scale(${from.width / to.width}, ${from.height / to.height})`;
+    const end = `translate(${to.left}px, ${to.top}px)`;
+    flyer.animate([{ transform: start, transformOrigin: "0 0" }, { transform: end, transformOrigin: "0 0" }], { duration: 750, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "forwards" }).finished.then(() => {
+      thumb.style.opacity = "";
+      flyer.remove();
+    });
+  }
+
+  document.getElementById("tray-reset").addEventListener("click", () => {
+    picks.length = 0;
+    trayPicks.replaceChildren();
+    tray.classList.remove("in");
+    tray.setAttribute("aria-hidden", "true");
+    root.classList.remove("tasted");
+    root.style.removeProperty("--pick");
+    root.style.removeProperty("--turn");
   });
 
   function demo(target) {
@@ -209,16 +281,10 @@
     void target.offsetWidth; // start the animation again when the demo runs twice
     target.classList.add("snap");
     setTimeout(() => target.classList.remove("snap"), 1100);
-    const picture = target === hero ? hero.querySelector(".back img") : target.querySelector("img");
-    toastImage.src = picture.currentSrc || picture.src;
-    toast.classList.add("in");
-    toast.setAttribute("aria-hidden", "false");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-      toast.classList.remove("in");
-      toast.setAttribute("aria-hidden", "true");
-    }, 2600);
+    pick(target);
   }
+  // A tap or a click on a picture of the wall picks it: a phone has no Option key.
+  for (const figure of document.querySelectorAll(".wall figure")) figure.addEventListener("click", () => demo(figure));
 
   addEventListener("keydown", (event) => {
     optionKey.classList.toggle("down", event.altKey);
@@ -243,6 +309,7 @@
   function realCopy(node) {
     if (node.style.background.includes("180") || Date.now() - lastReal < 1500) return;
     lastReal = Date.now();
+    pick(hovered ?? hero); // the extension took the key event, so the pick starts here
     [optionKey, shiftKey, cKey].forEach((key) => {
       key.classList.add("down");
       setTimeout(() => key.classList.remove("down"), 420);

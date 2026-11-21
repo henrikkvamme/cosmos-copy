@@ -74,7 +74,7 @@
         <div class="vault">
           <p class="tool"><i class="ok"></i><span class="done">tasteref - note_references (MCP)</span><span class="sub">&#9151; Saved to your vault. No input from you.</span></p>
           <dl class="rows"><div><dt>Used in</dt><dd>Settings list</dd></div><div><dt>Why chosen</dt><dd>Card layout</dd></div><div><dt>Liked</dt><dd>Compact stat cards</dd></div><div><dt>Changed</dt><dd>List rows became cards</dd></div></dl>
-          <div class="passed"><img src="/assets/landing/ref-poster.webp" alt="" loading="lazy"><p><span>Passed</span>Poster layout - too bold for this app</p></div>
+          <div class="passed"><img src="/assets/landing/ref-poster-orange.webp" alt="" loading="lazy"><p><span>Passed</span>Poster layout - too bold for this app</p></div>
         </div>
         <div class="agent a5">
           <p class="tool"><i class="spin"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></i><i class="ok"></i><span class="doing">Searching your vault</span><span class="done">tasteref - search_references (MCP)</span><span class="sub">&#9151; Found reference <b>t482019377215604</b> in your vault</span></p>
@@ -98,26 +98,27 @@
     <h2>Your agent learns your taste</h2>
     <p>TasteRef saves every copy to your vault automatically, alongside your saves from Cosmos. Connect your agent through MCP so it reads your vault before each task.</p>
   </div>
+  <p class="try" data-reveal><span class="by-key">Hover an image, then press <kbd>&#8997;</kbd><kbd>&#8679;</kbd><kbd>C</kbd></span><span class="by-touch">Tap an image to pick it</span></p>
   <div class="wall" aria-hidden="true">
     <div class="col" data-speed="0.05">
       <figure class="r32"><img src="/assets/landing/ref-interior.webp" alt="" loading="lazy"></figure>
-      <figure class="r23"><img src="/assets/landing/ref-poster.webp" alt="" loading="lazy"></figure>
-      <figure class="r11"><img src="/assets/landing/ref-glass.webp" alt="" loading="lazy"></figure>
+      <figure class="r23"><img src="/assets/landing/ref-poster-orange.webp" alt="" loading="lazy"></figure>
+      <figure class="r11"><img src="/assets/landing/ref-glass-blue.webp" alt="" loading="lazy"></figure>
     </div>
     <div class="col" data-speed="-0.04">
-      <figure class="r23"><img src="/assets/landing/ref-mobile.webp" alt="" loading="lazy"></figure>
-      <figure class="r32"><img src="/assets/landing/ref-type.webp" alt="" loading="lazy"></figure>
+      <figure class="r23"><img src="/assets/landing/ref-mobile-pink.webp" alt="" loading="lazy"></figure>
+      <figure class="r32"><img src="/assets/landing/ref-type-blue.webp" alt="" loading="lazy"></figure>
       <figure class="r11"><img src="/assets/landing/ref-product.webp" alt="" loading="lazy"></figure>
     </div>
     <div class="col" data-speed="0.08">
-      <figure class="r11"><img src="/assets/landing/ref-editorial.webp" alt="" loading="lazy"></figure>
-      <figure class="r23"><img src="/assets/landing/ref-packaging.webp" alt="" loading="lazy"></figure>
+      <figure class="r11"><img src="/assets/landing/ref-editorial-pink.webp" alt="" loading="lazy"></figure>
+      <figure class="r23"><img src="/assets/landing/ref-packaging-orange.webp" alt="" loading="lazy"></figure>
       <figure class="r32"><img src="/assets/landing/ref-web.webp" alt="" loading="lazy"></figure>
     </div>
     <div class="col" data-speed="-0.06">
-      <figure class="r11"><img src="/assets/landing/ref-icons.webp" alt="" loading="lazy"></figure>
-      <figure class="r32"><img src="/assets/landing/ref-dashboard.webp" alt="" loading="lazy"></figure>
-      <figure class="r23"><img src="/assets/landing/ref-brand.webp" alt="" loading="lazy"></figure>
+      <figure class="r11"><img src="/assets/landing/ref-icons-pink.webp" alt="" loading="lazy"></figure>
+      <figure class="r32"><img src="/assets/landing/ref-dashboard-orange.webp" alt="" loading="lazy"></figure>
+      <figure class="r23"><img src="/assets/landing/ref-brand-blue.webp" alt="" loading="lazy"></figure>
     </div>
   </div>
 </section>
@@ -203,9 +204,11 @@
   </span>
 </footer>
 
-<div class="demo-toast" id="toast" aria-hidden="true">
-  <span class="thumb"><img id="toast-img" src="/assets/landing/hero-ridge.webp" width="1632" height="1216" alt=""><span class="strip">t482019377215604-42</span></span>
-  <span role="status">Preview - how a real copy looks</span>
+<div class="tray" id="tray" role="status" aria-hidden="true">
+  <span class="tray-label">Your picks</span>
+  <span class="tray-picks" id="tray-picks"></span>
+  <span class="tray-note">Demo on this page only. Nothing is saved.</span>
+  <button class="tray-reset" id="tray-reset" type="button">Reset</button>
 </div>
 </body>
 </html>

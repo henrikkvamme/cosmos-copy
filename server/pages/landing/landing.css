@@ -7,6 +7,7 @@
   --text: #ededee;
   --muted: #8a8a92;
   --accent: #c6e33a;
+  --turn: 0deg;
   --on-accent: #111113;
   --r: 20px;
   --page: 1200px;
@@ -28,13 +29,24 @@ h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
 
 .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
 
-/* ---- Buttons: the arrow turns, and the script pulls the pill toward the pointer (--tx, --ty). ---- */
-.pill { --tx: 0px; --ty: 0px; position: relative; display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 8px 0 22px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); font-size: 15px; font-weight: 500; white-space: nowrap; transform: translate(var(--tx), var(--ty)); transition: transform 0.5s var(--out), background 0.25s, box-shadow 0.35s; }
+/* ---- The taste of the visitor: the script sets --pick to the colour of the pictures they picked, and --turn to the
+   angle from lime to that colour. The accent keeps the lightness and strength of the lime, so text on it stays readable.
+   Both are registered, so the page moves from one colour to the next. ---- */
+@property --pick { syntax: "<color>"; inherits: true; initial-value: #c6e33a; }
+@property --turn { syntax: "<angle>"; inherits: true; initial-value: 0deg; }
+:root { transition: --pick 1.1s var(--out), --turn 1.1s var(--out); }
+:root.tasted { --accent: var(--pick); }
+@supports (color: oklch(from red l c h)) { :root.tasted { --accent: oklch(from var(--pick) 0.87 0.19 h); } }
+:root.tasted .back img, :root.tasted .back video { filter: hue-rotate(var(--turn)); }
+:root.tasted .hero.snap .back img, :root.tasted .hero.snap .back video { filter: brightness(1.35) saturate(1.15) hue-rotate(var(--turn)); }
+
+/* ---- Buttons: the arrow turns. ---- */
+.pill { position: relative; display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 8px 0 22px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); font-size: 15px; font-weight: 500; white-space: nowrap; transition: transform 0.5s var(--out), background 0.25s, box-shadow 0.35s; }
 .pill:focus-visible { border-radius: 999px; }
 .pill .arrow { width: 32px; height: 32px; padding: 9px; border-radius: 50%; background: rgba(255, 255, 255, 0.1); fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.45s var(--out), background 0.25s; }
 .pill:hover { background: rgba(255, 255, 255, 0.14); }
 a.pill:hover .arrow { transform: rotate(45deg); }
-.pill:active { transform: translate(var(--tx), var(--ty)) scale(0.97); transition-duration: 0.1s; }
+.pill:active { transform: scale(0.97); transition-duration: 0.1s; }
 .pill.primary { background: var(--accent); color: var(--on-accent); }
 .pill.primary .arrow { background: var(--on-accent); stroke: var(--accent); }
 .pill.primary:hover { background: #d6ee5e; box-shadow: 0 10px 44px -6px rgba(198, 227, 58, 0.55); }
@@ -44,7 +56,7 @@ a.pill:hover .arrow { transform: rotate(45deg); }
 /* ---- Keycaps. A key goes down while it is held, on this page too. ---- */
 kbd { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(#2b2b30, #1c1c20); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 3px 0 #050506; font: 500 19px/1 -apple-system, BlinkMacSystemFont, "Inter", sans-serif; color: var(--text); transition: transform 0.12s, box-shadow 0.12s, background 0.12s; }
 .keys { display: inline-flex; gap: 6px; padding: 8px 8px 11px; border-radius: 20px; background: rgba(13, 13, 14, 0.6); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07); }
-.keys kbd:last-child { background: var(--accent); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 #5d6c12; }
+.keys kbd:last-child { background: var(--accent); color: var(--on-accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 3px 0 color-mix(in oklab, var(--accent), #000 55%); }
 button.keys:hover kbd { transform: translateY(-1px); }
 .keys kbd.down, button.keys:hover kbd.down { transform: translateY(3px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 #050506; background: #34343a; }
 .keys kbd:last-child.down, button.keys:hover kbd:last-child.down { background: #e2f57a; box-shadow: 0 0 0 #5d6c12, 0 0 28px rgba(198, 227, 58, 0.7); }
@@ -113,11 +125,21 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .wall figure { position: relative; }
 .snap:not(.hero)::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; box-shadow: inset 0 0 0 3px var(--accent); pointer-events: none; animation: frame 1.1s var(--out); }
 @keyframes frame { 0% { opacity: 0; transform: scale(1.04); } 18% { opacity: 1; transform: none; } 70% { opacity: 1; } 100% { opacity: 0; } }
-.demo-toast { position: fixed; left: 50%; bottom: 24px; z-index: 50; display: flex; align-items: center; gap: 12px; padding: 8px 18px 8px 8px; border-radius: 16px; background: rgba(28, 28, 32, 0.92); box-shadow: 0 0 0 1px var(--border), 0 18px 50px rgba(0, 0, 0, 0.55); font-size: 14px; white-space: nowrap; pointer-events: none; opacity: 0; transform: translate(-50%, 24px) scale(0.96); transition: opacity 0.3s, transform 0.45s var(--out); }
-.demo-toast.in { opacity: 1; transform: translate(-50%, 0); }
-.demo-toast .thumb { width: 64px; border-radius: 8px; overflow: hidden; background: #0b0b0c; }
-.demo-toast .thumb img { width: 100%; height: 34px; object-fit: cover; }
-.demo-toast .strip { font-size: 5.5px; line-height: 10px; padding: 0 4px; }
+/* The picks of the visitor, at the bottom of the window. */
+.tray { position: fixed; left: 50%; bottom: 20px; z-index: 50; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 24px); padding: 8px 8px 8px 16px; border-radius: 16px; background: rgba(28, 28, 32, 0.92); box-shadow: 0 0 0 1px var(--border), 0 18px 50px rgba(0, 0, 0, 0.55); font-size: 14px; white-space: nowrap; opacity: 0; visibility: hidden; transform: translate(-50%, 0); transition: opacity 0.3s, visibility 0s 0.3s; }
+.tray.in { opacity: 1; visibility: visible; transition-delay: 0s; }
+.tray-picks { display: flex; gap: 6px; }
+.tray-picks img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; box-shadow: 0 0 0 1px var(--border); }
+.tray-note { color: var(--muted); font-size: 13px; }
+.tray-reset { height: 36px; padding: 0 14px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, 0.08); color: inherit; font: inherit; cursor: pointer; transition: background 0.2s; }
+.tray-reset:hover { background: rgba(255, 255, 255, 0.16); }
+.flyer { position: fixed; left: 0; top: 0; z-index: 60; border-radius: 8px; object-fit: cover; pointer-events: none; box-shadow: 0 0 0 2px var(--accent), 0 20px 60px rgba(0, 0, 0, 0.6); }
+.try { display: flex; justify-content: center; margin: 28px 0 0; color: var(--muted); font-size: 15px; }
+.try kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.09); color: var(--text); font: 13px/1 inherit; }
+.try kbd:last-child { background: var(--accent); color: var(--on-accent); }
+.try .by-touch { display: none; }
+@media (hover: none) { .try .by-key { display: none; } .try .by-touch { display: inline; } }
+.wall figure { cursor: pointer; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
 
 
 /* ---- Sections ---- */
@@ -387,6 +409,7 @@ code { padding: 2px 6px; border-radius: 6px; background: var(--surface2); color:
   .fog i, .fog.near i, .wisps i { width: 800%; }
   .viewfinder { inset: 14px; }
 }
+@media (max-width: 640px) { .tray-note { display: none; } }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .hero .back, .hero-text > *, .wisps i, .fog i, .wire i, .scene *, .scene *::before { animation: none !important; }
