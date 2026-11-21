@@ -129,11 +129,12 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .tray { position: fixed; left: 50%; bottom: 20px; z-index: 50; display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 24px); padding: 8px 8px 8px 16px; border-radius: 16px; background: rgba(28, 28, 32, 0.92); box-shadow: 0 0 0 1px var(--border), 0 18px 50px rgba(0, 0, 0, 0.55); font-size: 14px; white-space: nowrap; opacity: 0; visibility: hidden; transform: translate(-50%, 0); transition: opacity 0.3s, visibility 0s 0.3s; }
 .tray.in { opacity: 1; visibility: visible; transition-delay: 0s; }
 .tray-picks { display: flex; gap: 6px; }
-.tray-picks img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; box-shadow: 0 0 0 1px var(--border); }
+.tray-picks canvas { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; box-shadow: 0 0 0 1px var(--border); }
 .tray-note { color: var(--muted); font-size: 13px; }
 .tray-reset { height: 36px; padding: 0 14px; border: 0; border-radius: 10px; background: rgba(255, 255, 255, 0.08); color: inherit; font: inherit; cursor: pointer; transition: background 0.2s; }
 .tray-reset:hover { background: rgba(255, 255, 255, 0.16); }
-.flyer { position: fixed; left: 0; top: 0; z-index: 60; border-radius: 8px; object-fit: cover; pointer-events: none; box-shadow: 0 0 0 2px var(--accent), 0 20px 60px rgba(0, 0, 0, 0.6); }
+.tray-picks .coming { opacity: 0; }
+.flyer { position: fixed; left: 0; top: 0; z-index: 60; width: 40px; height: 40px; transform-origin: 0 0; border-radius: 8px; pointer-events: none; box-shadow: 0 0 0 2px var(--accent), 0 20px 60px rgba(0, 0, 0, 0.6); }
 .try { display: flex; justify-content: center; margin: 28px 0 0; color: var(--muted); font-size: 15px; }
 .try kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.09); color: var(--text); font: 13px/1 inherit; }
 .try kbd:last-child { background: var(--accent); color: var(--on-accent); }
@@ -307,6 +308,7 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .wall figure { border-radius: 14px; background: var(--surface); overflow: hidden; }
 .wall img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.9s var(--out); }
 .wall figure:hover img { transform: scale(1.045); }
+.wall figure:focus-visible { border-radius: 14px; }
 .r32 { aspect-ratio: 3 / 2; }
 .r23 { aspect-ratio: 2 / 3; }
 .r11 { aspect-ratio: 1; }
@@ -409,7 +411,7 @@ code { padding: 2px 6px; border-radius: 6px; background: var(--surface2); color:
   .fog i, .fog.near i, .wisps i { width: 800%; }
   .viewfinder { inset: 14px; }
 }
-@media (max-width: 640px) { .tray-note { display: none; } }
+@media (max-width: 640px) { .tray-note, .tray-label { display: none; } .tray { padding-left: 8px; } }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .hero .back, .hero-text > *, .wisps i, .fog i, .wire i, .scene *, .scene *::before { animation: none !important; }

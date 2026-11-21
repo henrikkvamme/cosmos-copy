@@ -235,13 +235,22 @@
     root.classList.add("tasted");
   }
 
-  function pick(target) {
-    const picture = target === hero ? hero.querySelector(".back img") : target.querySelector("img");
-    if (!picture.complete || !picture.naturalWidth) return;
-    picks.push(hueOf(picture));
-    const thumb = new Image(40, 40);
-    thumb.src = picture.currentSrc || picture.src;
-    thumb.alt = "";
+  // A small square copy of a picture: the middle of the picture fills it.
+  function tile(source, size) {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = size * 2;
+    const width = source.naturalWidth || source.width;
+    const height = source.naturalHeight || source.height;
+    const scale = Math.max(canvas.width / width, canvas.height / height);
+    canvas.getContext("2d").drawImage(source, (canvas.width - width * scale) / 2, (canvas.height - height * scale) / 2, width * scale, height * scale);
+    return canvas;
+  }
+
+  // source: the picture, an img or a canvas. from: the element that the picture flies from.
+  function pick(source, from) {
+    if (source instanceof HTMLImageElement && (!source.complete || !source.naturalWidth)) return;
+    picks.push(hueOf(source));
+    const thumb = tile(source, 40);
     trayPicks.append(thumb);
     while (trayPicks.children.length > KEEP) trayPicks.firstElementChild.remove();
     tray.classList.add("in");
@@ -249,21 +258,21 @@
     restyle();
     if (still || !thumb.animate) return;
     // The picture flies from its place to its slot in the tray.
-    const from = (target === hero ? keys : picture).getBoundingClientRect();
-    const to = thumb.getBoundingClientRect();
-    const flyer = new Image();
-    flyer.src = thumb.src;
+    const start = from.getBoundingClientRect();
+    const end = thumb.getBoundingClientRect();
+    const flyer = tile(source, 40);
     flyer.className = "flyer";
-    flyer.width = to.width;
-    flyer.height = to.height;
     document.body.append(flyer);
-    thumb.style.opacity = "0";
-    const start = `translate(${from.left}px, ${from.top}px) scale(${from.width / to.width}, ${from.height / to.height})`;
-    const end = `translate(${to.left}px, ${to.top}px)`;
-    flyer.animate([{ transform: start, transformOrigin: "0 0" }, { transform: end, transformOrigin: "0 0" }], { duration: 750, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "forwards" }).finished.then(() => {
-      thumb.style.opacity = "";
+    thumb.classList.add("coming");
+    const frames = [
+      { transform: `translate(${start.left}px, ${start.top}px) scale(${start.width / end.width}, ${start.height / end.height})` },
+      { transform: `translate(${end.left}px, ${end.top}px)` },
+    ];
+    const land = () => {
+      thumb.classList.remove("coming");
       flyer.remove();
-    });
+    };
+    flyer.animate(frames, { duration: 750, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "forwards" }).finished.then(land, land);
   }
 
   document.getElementById("tray-reset").addEventListener("click", () => {
@@ -281,10 +290,18 @@
     void target.offsetWidth; // start the animation again when the demo runs twice
     target.classList.add("snap");
     setTimeout(() => target.classList.remove("snap"), 1100);
-    pick(target);
+    if (target === hero) pick(hero.querySelector(".back img"), keys);
+    else pick(target.querySelector("img"), target);
   }
   // A tap or a click on a picture of the wall picks it: a phone has no Option key.
-  for (const figure of document.querySelectorAll(".wall figure")) figure.addEventListener("click", () => demo(figure));
+  for (const figure of document.querySelectorAll(".wall figure")) {
+    figure.addEventListener("click", () => demo(figure));
+    figure.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault(); // Space does not scroll the page
+      demo(figure);
+    });
+  }
 
   addEventListener("keydown", (event) => {
     optionKey.classList.toggle("down", event.altKey);
@@ -304,12 +321,15 @@
   });
   // With the extension installed, the browser gives the shortcut to the extension and this page gets no key event.
   // The extension then adds its toast (#cosmos-copy-toast) to the page: that is the sign of a real copy.
-  // The extension shows the frame and the picture itself, so the page only presses the keys. A red toast is an error.
+  // The extension shows the frame itself, so the page presses the keys and adds the pick. A red toast is an error.
   let lastReal = 0;
   function realCopy(node) {
     if (node.style.background.includes("180") || Date.now() - lastReal < 1500) return;
     lastReal = Date.now();
-    pick(hovered ?? hero); // the extension took the key event, so the pick starts here
+    // The extension took the key event, so the pick starts here. Its toast holds a small picture of what it copied:
+    // the pointer can be on another picture by now, so that small picture is the pick.
+    const copied = node.querySelector("canvas");
+    if (copied) pick(copied, copied);
     [optionKey, shiftKey, cKey].forEach((key) => {
       key.classList.add("down");
       setTimeout(() => key.classList.remove("down"), 420);
