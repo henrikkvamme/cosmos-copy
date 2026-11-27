@@ -111,6 +111,9 @@
     return ordered;
   }
 
+  const DEMO = "TasteRef demo media is not copied.";
+  let lastDemo = 0;
+
   function findTarget() {
     const underCursor = elementsUnderCursor();
     // 1 and 2. A Cosmos card under the cursor, or the open element page.
@@ -132,7 +135,9 @@
       // The page gets an event and shows its own demo of the copy.
       if (el.closest('[data-tasteref="demo"]')) {
         document.dispatchEvent(new CustomEvent("tasteref:shortcut"));
-        return { demo: true };
+        // A worker from before 3.7 does not know "demo" and shows the error as a toast: the toast skips it.
+        lastDemo = Date.now();
+        return { demo: true, error: DEMO };
       }
       const media = mediaSource(el);
       if (!media) continue;
@@ -211,7 +216,8 @@
   function preview(el) {
     const width = el.naturalWidth || el.videoWidth;
     const height = el.naturalHeight || el.videoHeight;
-    if (!el.isConnected || !width || !height) return null;
+    if (!el.isConnected) return null;
+    if (!width || !height) return previewFromSource(el);
     const canvas = document.createElement("canvas");
     canvas.width = 128;
     canvas.height = Math.round(Math.min(96, Math.max(48, (128 * height) / width)));
@@ -220,10 +226,23 @@
     try {
       canvas.getContext("2d").drawImage(el, (canvas.width - width * scale) / 2, (canvas.height - height * scale) / 2, width * scale, height * scale);
     } catch {
-      return null; // a broken image
+      return previewFromSource(el); // a broken image
     }
     Object.assign(canvas.style, { display: "block", width: "64px", height: `${canvas.height / 2}px`, borderRadius: "8px", background: "#0b0b0c" });
     return canvas;
+  }
+
+  // A picture that has no pixels yet (a lazy image, a video before its first frame): the toast loads it from its
+  // address. A video shows its poster, else its first frame.
+  function previewFromSource(el) {
+    const media = mediaSource(el);
+    const poster = el.tagName === "VIDEO" && el.poster;
+    if (!media && !poster) return null;
+    const shown = poster || media.kind === "image" ? document.createElement("img") : document.createElement("video");
+    if (shown.tagName === "IMG") shown.src = poster || media.url;
+    else Object.assign(shown, { src: `${media.url}#t=0.1`, muted: true, preload: "metadata", playsInline: true });
+    Object.assign(shown.style, { display: "block", width: "64px", height: "48px", objectFit: "cover", borderRadius: "8px", background: "#0b0b0c" });
+    return shown;
   }
 
   let toastTimer;
@@ -314,6 +333,6 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg.type === "cosmos-copy:target") reply(findTarget());
-    if (msg.type === "cosmos-copy:toast") toast(msg.text, msg.isError, msg.copy);
+    if (msg.type === "cosmos-copy:toast" && !(msg.text.includes(DEMO) && Date.now() - lastDemo < 5000)) toast(msg.text, msg.isError, msg.copy);
   });
 })();

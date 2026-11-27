@@ -185,8 +185,8 @@ async function copyReference(tab, found, add = false) {
     tab = await withLimit(activeTab(tab), "The tab lookup");
     if (!tab?.id) return;
     found ??= await withLimit(askTab(tab.id, { type: "cosmos-copy:target" }), "The page");
-    if (found.error) throw new Error(found.error);
     if (found.demo) return; // the page shows its own demo
+    if (found.error) throw new Error(found.error);
     toast(tab.id, "Copying…", false, found.copy);
 
     const elementId = found.elementId;

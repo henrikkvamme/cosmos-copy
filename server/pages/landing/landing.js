@@ -363,7 +363,7 @@
     if (node.textContent.startsWith("Already")) return;
     // The extension took the key event, so the pick starts here. Its toast holds a small picture of what it copied:
     // the pointer can be on another picture by now, so that small picture is the pick.
-    const copied = node.querySelector("canvas");
+    const copied = node.querySelector("canvas, img");
     if (copied) pick(copied, copied);
   }
   // The films of the hero and the closing are marked as a demo (data-tasteref="demo"): the extension does not copy
