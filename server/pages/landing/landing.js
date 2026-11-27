@@ -247,29 +247,55 @@
   }
 
   // source: the picture, an img or a canvas. from: the element that the picture flies from.
+  // A picture that is in the tray already is not added again: the tray shows the pick it has, and says so.
+  const trayNote = tray.querySelector(".tray-note");
+  const noteText = trayNote.textContent;
+  let noteTimer = 0;
+  function again(thumb) {
+    trayNote.textContent = "Already in your picks.";
+    clearTimeout(noteTimer);
+    noteTimer = setTimeout(() => (trayNote.textContent = noteText), 1800);
+    thumb.classList.remove("again");
+    void thumb.offsetWidth; // start the pulse again on the next repeat
+    thumb.classList.add("again");
+  }
+
   function pick(source, from) {
     if (source instanceof HTMLImageElement && (!source.complete || !source.naturalWidth)) return;
-    picks.push(hueOf(source));
+    // The small copy is the key: the same picture gives the same pixels, also from the toast of the extension.
     const thumb = tile(source, 40);
+    const key = thumb.toDataURL();
+    const known = [...trayPicks.children].find((child) => child.dataset.key === key);
+    if (known) {
+      again(known);
+      if (!still && known.animate) fly(source, from, known);
+      return;
+    }
+    thumb.dataset.key = key;
+    picks.push(hueOf(source));
     trayPicks.append(thumb);
     while (trayPicks.children.length > KEEP) trayPicks.firstElementChild.remove();
     tray.classList.add("in");
     tray.setAttribute("aria-hidden", "false");
     restyle();
     if (still || !thumb.animate) return;
-    // The picture flies from its place to its slot in the tray.
+    thumb.classList.add("coming");
+    fly(source, from, thumb, () => thumb.classList.remove("coming"));
+  }
+
+  // The picture flies from its place to a slot in the tray.
+  function fly(source, from, thumb, landed = () => {}) {
     const start = from.getBoundingClientRect();
     const end = thumb.getBoundingClientRect();
     const flyer = tile(source, 40);
     flyer.className = "flyer";
     document.body.append(flyer);
-    thumb.classList.add("coming");
     const frames = [
       { transform: `translate(${start.left}px, ${start.top}px) scale(${start.width / end.width}, ${start.height / end.height})` },
       { transform: `translate(${end.left}px, ${end.top}px)` },
     ];
     const land = () => {
-      thumb.classList.remove("coming");
+      landed();
       flyer.remove();
     };
     flyer.animate(frames, { duration: 750, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "forwards" }).finished.then(land, land);
