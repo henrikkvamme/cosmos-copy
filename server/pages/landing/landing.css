@@ -103,7 +103,21 @@ button.keys:hover kbd { transform: translateY(-1px); }
 .hero-text > :nth-child(4) { animation-delay: 0.24s; }
 @keyframes up { from { opacity: 0; transform: translateY(26px); } }
 .hero h1 { max-width: 12em; font-size: clamp(40px, 5.6vw, 76px); }
-.hero h1 span { display: block; }
+/* The heading: Cmd+C and Cmd+V as keycaps in the style of the shortcut demo, sized by the heading. They press once
+   when the page opens: Cmd+C, then Cmd+V. */
+.hero h1 .caps { display: flex; justify-content: center; gap: 0.3em; margin-bottom: 0.14em; }
+.hero h1 .pair { display: inline-flex; gap: 0.08em; }
+.hero h1 kbd { width: 2.15em; height: 2.15em; font-size: 0.5em; font-weight: 500; letter-spacing: 0; border-radius: 0.46em; box-shadow: inset 0 0.04em 0 rgba(255, 255, 255, 0.12), 0 0.14em 0 #050506, 0 0.5em 1.2em rgba(0, 0, 0, 0.45); }
+.hero h1 kbd + kbd { background: var(--accent); color: var(--on-accent); box-shadow: inset 0 0.04em 0 rgba(255, 255, 255, 0.4), 0 0.14em 0 color-mix(in oklab, var(--accent), #000 55%), 0 0.5em 1.4em color-mix(in oklab, var(--accent), transparent 72%); }
+.hero h1 .tail { display: block; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .hero h1 kbd { animation: cap-press 0.36s 0.7s both; }
+  .hero h1 kbd + kbd { animation-delay: 0.78s; }
+  .hero h1 .pair + .pair kbd { animation-delay: 1.15s; }
+  .hero h1 .pair + .pair kbd + kbd { animation-delay: 1.23s; }
+}
+@keyframes cap-press { 40% { transform: translateY(0.12em); box-shadow: inset 0 0.04em 0 rgba(255, 255, 255, 0.08), 0 0.02em 0 #050506; } }
 .lede { max-width: 34em; margin-top: 20px; color: #a9a9b0; font-size: clamp(16px, 1.4vw, 19px); text-wrap: pretty; }
 .hero .keys { margin-top: 26px; }
 .hero .actions { margin-top: 18px; }
