@@ -376,7 +376,9 @@ code { padding: 2px 6px; border-radius: 6px; background: var(--surface2); color:
 /* The light under the pointer: color-dodge makes the aurora brighter there and leaves the dark sky dark. */
 @property --px { syntax: "<length>"; inherits: true; initial-value: 0px; }
 @property --py { syntax: "<length>"; inherits: true; initial-value: 0px; }
-.closing .lift { inset: 0; z-index: 1; background: radial-gradient(circle 380px at var(--px) var(--py), rgba(236, 255, 190, 0.5), rgba(236, 255, 190, 0.16) 45%, transparent 72%); mix-blend-mode: color-dodge; opacity: 0; transition: opacity 0.7s, --px 0.35s var(--out), --py 0.35s var(--out); }
+/* Only the lights under the pointer get brighter: more contrast lifts the bright aurora, keeps the grey fog
+   about the same and makes the dark sky no lighter. The mask keeps the change near the pointer. */
+.closing .lift { inset: 0; z-index: 1; -webkit-backdrop-filter: contrast(1.45) brightness(1.18) saturate(1.25); backdrop-filter: contrast(1.45) brightness(1.18) saturate(1.25); -webkit-mask-image: radial-gradient(circle 420px at var(--px) var(--py), #000, rgba(0, 0, 0, 0.55) 40%, transparent 75%); mask-image: radial-gradient(circle 420px at var(--px) var(--py), #000, rgba(0, 0, 0, 0.55) 40%, transparent 75%); opacity: 0; transition: opacity 0.7s, --px 0.35s var(--out), --py 0.35s var(--out); }
 .closing.lit .lift { opacity: 1; }
 .closing h2, .closing p, .closing div[data-reveal] { position: relative; z-index: 2; }
 .closing p { margin: 16px 0 28px; color: #a9a9b0; }

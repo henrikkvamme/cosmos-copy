@@ -323,18 +323,29 @@
   // The extension then adds its toast (#cosmos-copy-toast) to the page: that is the sign of a real copy.
   // The extension shows the frame itself, so the page presses the keys and adds the pick. A red toast is an error.
   let lastReal = 0;
-  function realCopy(node) {
-    if (node.style.background.includes("180") || Date.now() - lastReal < 1500) return;
-    lastReal = Date.now();
-    // The extension took the key event, so the pick starts here. Its toast holds a small picture of what it copied:
-    // the pointer can be on another picture by now, so that small picture is the pick.
-    const copied = node.querySelector("canvas");
-    if (copied) pick(copied, copied);
+  function pressAll() {
     [optionKey, shiftKey, cKey].forEach((key) => {
       key.classList.add("down");
       setTimeout(() => key.classList.remove("down"), 420);
     });
   }
+  function realCopy(node) {
+    if (node.style.background.includes("180") || Date.now() - lastReal < 1500) return;
+    lastReal = Date.now();
+    pressAll();
+    // A second copy of the same file is not a new pick.
+    if (node.textContent.startsWith("Already")) return;
+    // The extension took the key event, so the pick starts here. Its toast holds a small picture of what it copied:
+    // the pointer can be on another picture by now, so that small picture is the pick.
+    const copied = node.querySelector("canvas");
+    if (copied) pick(copied, copied);
+  }
+  // The films of the hero and the closing are marked as a demo (data-tasteref="demo"): the extension does not copy
+  // them, and sends this event so the page shows its demo in place of the copy.
+  document.addEventListener("tasteref:shortcut", () => {
+    pressAll();
+    demo(hovered ?? hero);
+  });
   const extensionToast = new MutationObserver((changes) => {
     for (const change of changes) {
       if (change.target.id === "cosmos-copy-toast") realCopy(change.target);

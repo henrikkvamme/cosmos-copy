@@ -128,6 +128,12 @@
     }
     // 4. Nothing at the cursor: the largest one in view.
     for (const el of atCursor.length ? atCursor : largestMedia()) {
+      // A page can mark media as a demo of TasteRef (the TasteRef landing page does): it is not copied.
+      // The page gets an event and shows its own demo of the copy.
+      if (el.closest('[data-tasteref="demo"]')) {
+        document.dispatchEvent(new CustomEvent("tasteref:shortcut"));
+        return { demo: true };
+      }
       const media = mediaSource(el);
       if (!media) continue;
       return { media, copy: mark(el) };

@@ -142,7 +142,7 @@ async function copyToClipboard(slot, media, name, meta, add, save) {
   const batch = add ? (await chrome.storage.session.get("batch")).batch : undefined;
   const message = { url: media.url, kind: media.kind, name, appendTo: batch?.changeCount };
   const result = save ? await nativeCopy({ ...message, upload: save.upload }, save.onSaved) : await native(message);
-  const item = { path: result.path, kind: media.kind, thumb: media.thumb ?? media.url, ...meta };
+  const item = { path: result.path, kind: media.kind, url: media.url, thumb: media.thumb ?? media.url, ...meta };
   const kept = result.count > 1 ? (batch?.items ?? []).filter((i) => i.path !== item.path) : [];
   await chrome.storage.session.set({ batch: { changeCount: result.changeCount, items: [...kept, item] } });
   return result;
@@ -186,6 +186,7 @@ async function copyReference(tab, found, add = false) {
     if (!tab?.id) return;
     found ??= await withLimit(askTab(tab.id, { type: "cosmos-copy:target" }), "The page");
     if (found.error) throw new Error(found.error);
+    if (found.demo) return; // the page shows its own demo
     toast(tab.id, "Copying…", false, found.copy);
 
     const elementId = found.elementId;
@@ -209,6 +210,14 @@ async function copyReference(tab, found, add = false) {
       },
     };
     const name = elementId ? `cosmos-${elementId}` : id ? `tasteref-${id}` : undefined;
+    // The same file is on the clipboard already (a second press, or many fast presses): nothing is
+    // downloaded, copied or saved again. Each press waits for its turn, so it sees the copy before it.
+    await slot.turn;
+    const onClipboard = await currentBatch();
+    if (onClipboard?.items.some((item) => item.url === media.url && (add || onClipboard.items.length === 1))) {
+      toast(tab.id, "Already on the clipboard.", false, found.copy);
+      return;
+    }
     // Copy and keep at the same time: the clipboard does not wait for Cosmos.
     const [copied, kept] = await Promise.all([
       copyToClipboard(slot, media, name, meta, add, save).finally(slot.release),
